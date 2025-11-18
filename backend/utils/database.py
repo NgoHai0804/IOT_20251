@@ -6,3 +6,5 @@ DB_NAME = "iot_app"
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 users_collection = db["users"]
+devices_collection = db["devices"]
+user_devices_collection = db["user_devices"]

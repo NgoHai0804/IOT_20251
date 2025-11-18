@@ -4,7 +4,6 @@ from fastapi import Depends, HTTPException, Header, status
 from datetime import datetime, timedelta
 from utils.database import users_collection
 
-
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -66,8 +65,8 @@ def get_current_user(Authorization: str = Header(None)):
 
     token = Authorization.split(" ")[1]
     email = verify_token(token)
+    user = users_collection.find_one({"email": email})
 
-    user = users_collection.find_one({"_id": email})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
