@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime
 
+
 def create_user_dict(full_name: str, email: str, password_hash: str, phone: str = "") -> dict:
     return {
         "user_id": str(uuid.uuid4()),   # UUID thay cho Django UUIDField

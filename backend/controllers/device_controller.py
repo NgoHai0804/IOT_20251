@@ -6,7 +6,6 @@ from models.user_models import create_user_dict
 from utils.auth import create_access_token
 import bcrypt
 
-
 # ==========================
 # Add Device
 # ==========================

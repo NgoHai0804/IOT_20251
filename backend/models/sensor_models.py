@@ -2,6 +2,7 @@
 from datetime import datetime
 import uuid
 
+
 def create_sensor_dict(name: str, sensor_type: str, device_id: str, note: str = "") -> dict:
     return {
         "sensor_id": str(uuid.uuid4()),

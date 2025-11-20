@@ -4,6 +4,7 @@ from schemas.user_device_schemas import *
 from utils.auth import get_current_user
 
 
+
 router = APIRouter(prefix="/user-device", tags=["UserDevice"])
 
 @router.post("/add", response_model=ResponseSchema)

@@ -12,9 +12,7 @@ SECRET_KEY = os.environ.get("SECRET_KEY")
 ALGORITHM = os.environ.get("ALGORITHM")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 1440)) # 1 ngày
 
-
 print(SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES)
-
 
 # =========================
 # Tạo JWT token

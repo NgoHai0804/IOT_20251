@@ -4,6 +4,7 @@ from schemas.user_schemas import *
 from utils.auth import get_current_user
 
 
+
 router = APIRouter(prefix="/users", tags=["Users"])
 
 @router.post("/register", response_model=ResponseSchema)

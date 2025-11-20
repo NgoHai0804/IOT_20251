@@ -2,6 +2,7 @@ from djongo import models
 from datetime import datetime
 from .sensor_models import Sensor
 
+
 class SensorData(models.Model):
     sensor_data_id = models.AutoField(primary_key=True)
     sensor = models.ForeignKey(Sensor, on_delete=models.CASCADE)

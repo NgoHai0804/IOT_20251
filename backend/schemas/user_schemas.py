@@ -2,6 +2,7 @@
 from pydantic import BaseModel, EmailStr
 from typing import Any, Optional
 
+
 class ResponseSchema(BaseModel):
     status: bool
     message: str

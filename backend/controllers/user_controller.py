@@ -7,7 +7,6 @@ from utils.auth import create_access_token
 import bcrypt
 
 
-
 # ==========================
 # Register
 # ==========================

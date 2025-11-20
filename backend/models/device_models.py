@@ -2,6 +2,7 @@
 import uuid
 from datetime import datetime
 
+
 def create_device_dict(device_serial: str, device_name: str, device_type: str, location: str = "", status: str = "offline", note: str = "", device_password: str = None) -> dict:
     """
     Tạo dict device với mật khẩu nếu có
