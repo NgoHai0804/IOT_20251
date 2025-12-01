@@ -4,28 +4,42 @@ import { Home, Lock, User } from 'lucide-react';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './ui/card';
+import { authAPI } from '@/services/api';
+import { toast } from 'sonner';
 import type { LoginProps } from '@/types';
 
 export function Login({ onLogin }: LoginProps) {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     
-    if (!username || !password) {
-      setError('Please enter both username and password');
+    if (!email || !password) {
+      setError('Please enter both email and password');
       return;
     }
     
-    // Simple validation - in real app this would be proper authentication
-    if (password.length < 4) {
-      setError('Password must be at least 4 characters');
+    if (password.length < 8) {
+      setError('Password must be at least 8 characters');
       return;
     }
     
-    onLogin(username);
+    setLoading(true);
+    try {
+      const result = await authAPI.login(email, password);
+      toast.success('Login successful!');
+      onLogin(result.user.full_name || result.user.email || email);
+    } catch (err: any) {
+      const errorMessage = err.message || 'Login failed. Please check your credentials.';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -57,18 +71,19 @@ export function Login({ onLogin }: LoginProps) {
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="username" className="text-slate-300">
-                  Username
+                <label htmlFor="email" className="text-slate-300">
+                  Email
                 </label>
                 <div className="relative">
                   <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
                   <Input
-                    id="username"
-                    type="text"
-                    placeholder="Enter your username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
+                    id="email"
+                    type="email"
+                    placeholder="Enter your email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
                     className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -86,6 +101,7 @@ export function Login({ onLogin }: LoginProps) {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
                   />
                 </div>
               </div>
@@ -103,12 +119,13 @@ export function Login({ onLogin }: LoginProps) {
               <Button
                 type="submit"
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                disabled={loading}
               >
-                Sign In
+                {loading ? 'Signing in...' : 'Sign In'}
               </Button>
               
               <p className="text-center text-slate-400 text-sm">
-                Demo: Use any username with password length ≥ 4
+                Password must be at least 8 characters
               </p>
             </form>
           </CardContent>

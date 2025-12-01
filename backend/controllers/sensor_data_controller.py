@@ -1,0 +1,508 @@
+from fastapi import HTTPException, status
+from fastapi.responses import JSONResponse
+from utils.database import (
+    sensor_data_collection, 
+    devices_collection, 
+    user_devices_collection,
+    sensors_collection,
+    sanitize_for_json
+)
+from datetime import datetime, timedelta
+from typing import Optional, Dict, List
+from bson import ObjectId
+
+
+def get_sensor_data(
+    user_data: dict,
+    device_id: Optional[str] = None,
+    sensor_id: Optional[str] = None,
+    sensor_type: Optional[str] = None,
+    limit: int = 100,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None
+):
+    """
+    Lấy dữ liệu sensor từ database
+    """
+    try:
+        user_id = str(user_data["_id"])
+        
+        # Xây dựng query filter
+        query = {}
+        
+        # Kiểm tra quyền truy cập device
+        if device_id:
+            # Kiểm tra device có thuộc về user không
+            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not linked to this user or not found",
+                        "data": None
+                    }
+                )
+            query["device_id"] = device_id
+        
+        # Nếu không có device_id, lấy tất cả devices của user
+        else:
+            linked_devices = user_devices_collection.find({"user_id": user_id})
+            device_ids = [link["device_id"] for link in linked_devices]
+            
+            if not device_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No devices found for this user",
+                        "data": {"sensor_data": [], "total": 0}
+                    }
+                )
+            query["device_id"] = {"$in": device_ids}
+        
+        # Filter theo sensor_id
+        if sensor_id:
+            query["sensor_id"] = sensor_id
+        
+        # Filter theo sensor_type
+        if sensor_type:
+            query["sensor_type"] = sensor_type
+        
+        # Filter theo thời gian
+        if start_time or end_time:
+            time_query = {}
+            if start_time:
+                try:
+                    start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    time_query["$gte"] = start_dt
+                except ValueError:
+                    return JSONResponse(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        content={
+                            "status": False,
+                            "message": "Invalid start_time format. Use ISO format (e.g., 2024-01-01T00:00:00Z)",
+                            "data": None
+                        }
+                    )
+            
+            if end_time:
+                try:
+                    end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    time_query["$lte"] = end_dt
+                except ValueError:
+                    return JSONResponse(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        content={
+                            "status": False,
+                            "message": "Invalid end_time format. Use ISO format (e.g., 2024-01-01T23:59:59Z)",
+                            "data": None
+                        }
+                    )
+            
+            if time_query:
+                query["timestamp"] = time_query
+        
+        # Lấy dữ liệu từ database, sắp xếp theo timestamp giảm dần (mới nhất trước)
+        cursor = sensor_data_collection.find(query).sort("timestamp", -1).limit(limit)
+        sensor_data_list = list(cursor)
+        
+        # Convert ObjectId và datetime
+        for item in sensor_data_list:
+            if "_id" in item:
+                item["_id"] = str(item["_id"])
+        
+        # Đếm tổng số records (không giới hạn)
+        total_count = sensor_data_collection.count_documents(query)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Sensor data retrieved successfully",
+                "data": {
+                    "sensor_data": sanitize_for_json(sensor_data_list),
+                    "total": total_count,
+                    "returned": len(sensor_data_list),
+                    "limit": limit
+                }
+            }
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+
+
+def get_latest_sensor_data(
+    user_data: dict,
+    device_id: Optional[str] = None,
+    sensor_id: Optional[str] = None
+):
+    """
+    Lấy dữ liệu sensor mới nhất
+    """
+    try:
+        user_id = str(user_data["_id"])
+        
+        query = {}
+        
+        # Kiểm tra quyền truy cập device
+        if device_id:
+            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not linked to this user or not found",
+                        "data": None
+                    }
+                )
+            query["device_id"] = device_id
+        else:
+            # Lấy tất cả devices của user
+            linked_devices = user_devices_collection.find({"user_id": user_id})
+            device_ids = [link["device_id"] for link in linked_devices]
+            
+            if not device_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No devices found for this user",
+                        "data": {"sensor_data": []}
+                    }
+                )
+            query["device_id"] = {"$in": device_ids}
+        
+        if sensor_id:
+            query["sensor_id"] = sensor_id
+        
+        # Lấy dữ liệu mới nhất cho mỗi sensor
+        pipeline = [
+            {"$match": query},
+            {"$sort": {"timestamp": -1}},
+            {
+                "$group": {
+                    "_id": "$sensor_id",
+                    "latest_data": {"$first": "$$ROOT"}
+                }
+            },
+            {"$replaceRoot": {"newRoot": "$latest_data"}},
+            {"$sort": {"timestamp": -1}}
+        ]
+        
+        sensor_data_list = list(sensor_data_collection.aggregate(pipeline))
+        
+        # Convert ObjectId
+        for item in sensor_data_list:
+            if "_id" in item:
+                item["_id"] = str(item["_id"])
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Latest sensor data retrieved successfully",
+                "data": {
+                    "sensor_data": sanitize_for_json(sensor_data_list),
+                    "count": len(sensor_data_list)
+                }
+            }
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+
+
+def get_sensor_statistics(
+    user_data: dict,
+    device_id: Optional[str] = None,
+    sensor_id: Optional[str] = None,
+    sensor_type: Optional[str] = None,
+    start_time: Optional[str] = None,
+    end_time: Optional[str] = None
+):
+    """
+    Lấy thống kê dữ liệu sensor (min, max, avg, count)
+    """
+    try:
+        user_id = str(user_data["_id"])
+        
+        query = {}
+        
+        # Kiểm tra quyền truy cập device
+        if device_id:
+            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not linked to this user or not found",
+                        "data": None
+                    }
+                )
+            query["device_id"] = device_id
+        else:
+            linked_devices = user_devices_collection.find({"user_id": user_id})
+            device_ids = [link["device_id"] for link in linked_devices]
+            
+            if not device_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No devices found for this user",
+                        "data": {"statistics": []}
+                    }
+                )
+            query["device_id"] = {"$in": device_ids}
+        
+        if sensor_id:
+            query["sensor_id"] = sensor_id
+        
+        if sensor_type:
+            query["sensor_type"] = sensor_type
+        
+        # Filter theo thời gian
+        if start_time or end_time:
+            time_query = {}
+            if start_time:
+                try:
+                    start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
+                    time_query["$gte"] = start_dt
+                except ValueError:
+                    return JSONResponse(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        content={
+                            "status": False,
+                            "message": "Invalid start_time format",
+                            "data": None
+                        }
+                    )
+            
+            if end_time:
+                try:
+                    end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
+                    time_query["$lte"] = end_dt
+                except ValueError:
+                    return JSONResponse(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        content={
+                            "status": False,
+                            "message": "Invalid end_time format",
+                            "data": None
+                        }
+                    )
+            
+            if time_query:
+                query["timestamp"] = time_query
+        
+        # Tính toán thống kê
+        pipeline = [
+            {"$match": query},
+            {
+                "$group": {
+                    "_id": {
+                        "sensor_id": "$sensor_id",
+                        "sensor_type": "$sensor_type",
+                        "device_id": "$device_id"
+                    },
+                    "count": {"$sum": 1},
+                    "min_value": {"$min": "$value"},
+                    "max_value": {"$max": "$value"},
+                    "avg_value": {"$avg": "$value"},
+                    "latest_timestamp": {"$max": "$timestamp"},
+                    "earliest_timestamp": {"$min": "$timestamp"}
+                }
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "sensor_id": "$_id.sensor_id",
+                    "sensor_type": "$_id.sensor_type",
+                    "device_id": "$_id.device_id",
+                    "count": 1,
+                    "min_value": {"$round": ["$min_value", 2]},
+                    "max_value": {"$round": ["$max_value", 2]},
+                    "avg_value": {"$round": ["$avg_value", 2]},
+                    "latest_timestamp": 1,
+                    "earliest_timestamp": 1
+                }
+            }
+        ]
+        
+        statistics = list(sensor_data_collection.aggregate(pipeline))
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Sensor statistics retrieved successfully",
+                "data": {
+                    "statistics": sanitize_for_json(statistics),
+                    "count": len(statistics)
+                }
+            }
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+
+
+def get_sensor_trends(
+    user_data: dict,
+    device_id: Optional[str] = None,
+    hours: int = 24,
+    limit_per_type: int = 100
+):
+    """
+    Lấy dữ liệu trends đã được format sẵn cho charts
+    Trả về dữ liệu theo sensor type: temperature, humidity, energy
+    """
+    try:
+        user_id = str(user_data["_id"])
+        
+        # Tính thời gian bắt đầu
+        start_time = datetime.utcnow() - timedelta(hours=hours)
+        
+        # Xây dựng query filter
+        query = {
+            "timestamp": {"$gte": start_time}
+        }
+        
+        # Kiểm tra quyền truy cập device
+        if device_id:
+            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not linked to this user or not found",
+                        "data": None
+                    }
+                )
+            query["device_id"] = device_id
+        else:
+            linked_devices = user_devices_collection.find({"user_id": user_id})
+            device_ids = [link["device_id"] for link in linked_devices]
+            
+            if not device_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No devices found for this user",
+                        "data": {
+                            "temperature": [],
+                            "humidity": [],
+                            "energy": []
+                        }
+                    }
+                )
+            query["device_id"] = {"$in": device_ids}
+        
+        # Lấy dữ liệu sensor
+        cursor = sensor_data_collection.find(query).sort("timestamp", 1)  # Sort tăng dần theo thời gian
+        sensor_data_list = list(cursor)
+        
+        # Group và format dữ liệu theo sensor type
+        temperature_data: List[Dict] = []
+        humidity_data: List[Dict] = []
+        energy_data: List[Dict] = []
+        
+        for item in sensor_data_list:
+            sensor_type = (item.get("sensor_type", "") or "").lower()
+            value = item.get("value", 0)
+            timestamp = item.get("timestamp") or item.get("created_at")
+            
+            if not timestamp:
+                continue
+            
+            # Format timestamp thành time string (HH:MM)
+            if isinstance(timestamp, datetime):
+                time_str = timestamp.strftime("%H:%M")
+            else:
+                try:
+                    if isinstance(timestamp, str):
+                        timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
+                    time_str = timestamp.strftime("%H:%M")
+                except:
+                    continue
+            
+            data_point = {
+                "time": time_str,
+                "value": round(float(value), 2)
+            }
+            
+            # Phân loại theo sensor type
+            if "temperature" in sensor_type or "temp" in sensor_type:
+                temperature_data.append(data_point)
+            elif "humidity" in sensor_type or "humid" in sensor_type:
+                humidity_data.append(data_point)
+            elif "energy" in sensor_type or "power" in sensor_type:
+                energy_data.append(data_point)
+        
+        # Giới hạn số lượng điểm dữ liệu cho mỗi type
+        def limit_data(data_list: List[Dict], limit: int) -> List[Dict]:
+            if len(data_list) <= limit:
+                return data_list
+            # Lấy đều các điểm dữ liệu
+            step = len(data_list) // limit
+            return [data_list[i] for i in range(0, len(data_list), step)][:limit]
+        
+        temperature_data = limit_data(temperature_data, limit_per_type)
+        humidity_data = limit_data(humidity_data, limit_per_type)
+        energy_data = limit_data(energy_data, limit_per_type)
+        
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Sensor trends retrieved successfully",
+                "data": {
+                    "temperature": sanitize_for_json(temperature_data),
+                    "humidity": sanitize_for_json(humidity_data),
+                    "energy": sanitize_for_json(energy_data),
+                    "count": {
+                        "temperature": len(temperature_data),
+                        "humidity": len(humidity_data),
+                        "energy": len(energy_data)
+                    }
+                }
+            }
+        )
+    
+    except Exception as e:
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+

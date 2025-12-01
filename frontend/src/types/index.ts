@@ -7,6 +7,7 @@ export interface Sensor {
   value: number;
   unit: string;
   room: string;
+  deviceId?: string; // ID của thiết bị chứa sensor này
   lastUpdate: Date;
   trend?: 'up' | 'down' | 'stable';
 }
@@ -60,13 +61,16 @@ export interface Room {
 export interface DashboardProps {
   sensors: Sensor[];
   devices: Device[];
-  temperatureData: ChartDataPoint[];
-  energyData: ChartDataPoint[];
-  humidityData: ChartDataPoint[];
   onDeviceToggle: (id: string) => void;
   onBrightnessChange: (id: string, value: number) => void;
   onSpeedChange: (id: string, value: number) => void;
   onTemperatureChange: (id: string, value: number) => void;
+  selectedDeviceId?: string | null;
+  selectedRoom?: string | null;
+  onDeviceClick?: (deviceId: string) => void;
+  onRoomClick?: (room: string) => void;
+  onClearSelection?: () => void;
+  rooms?: string[];
 }
 
 export interface DevicesProps {
@@ -77,10 +81,26 @@ export interface DevicesProps {
   onSpeedChange: (id: string, value: number) => void;
   onTemperatureChange: (id: string, value: number) => void;
   onAddDevice: (newDevice: Omit<Device, 'id' | 'lastActive'>) => void;
+  onUpdateDevice: () => void;
+  selectedDeviceId?: string | null;
+  onDeviceClick?: (deviceId: string) => void;
+  onClearSelection?: () => void;
+  sensors?: Sensor[];
+  temperatureData?: ChartDataPoint[];
+  energyData?: ChartDataPoint[];
+  humidityData?: ChartDataPoint[];
 }
 
 export interface RoomsProps {
   devices: Device[];
+  selectedRoom?: string | null;
+  onRoomClick?: (room: string) => void;
+  onClearSelection?: () => void;
+  sensors?: Sensor[];
+  temperatureData?: ChartDataPoint[];
+  energyData?: ChartDataPoint[];
+  humidityData?: ChartDataPoint[];
+  onUpdateRoom?: () => Promise<void>;
 }
 
 export interface AnalyticsProps {
@@ -110,6 +130,7 @@ export interface DeviceCardProps {
   onBrightnessChange?: (id: string, value: number) => void;
   onSpeedChange?: (id: string, value: number) => void;
   onTemperatureChange?: (id: string, value: number) => void;
+  onEdit?: (device: Device) => void;
 }
 
 export interface ChartsPanelProps {
@@ -120,11 +141,21 @@ export interface ChartsPanelProps {
 
 export interface RoomPanelProps {
   devices: Device[];
+  onRoomClick?: (room: string) => void;
+  selectedRoom?: string | null;
+  onEditRoom?: (room: string) => void;
+  onDeleteRoom?: (room: string, deviceCount: number) => void;
 }
 
 export interface AddDeviceDialogProps {
   onAddDevice: (device: Omit<Device, 'id' | 'lastActive'>) => void;
   rooms: string[];
+}
+
+export interface EditDeviceDialogProps {
+  device: Device;
+  rooms: string[];
+  onUpdateDevice: () => void;
 }
 
 export interface LoginProps {

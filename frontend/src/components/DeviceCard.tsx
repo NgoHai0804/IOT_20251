@@ -1,10 +1,11 @@
 import { motion } from 'motion/react';
-import { Lightbulb, Fan, AirVent, Plug } from 'lucide-react';
+import { Lightbulb, Fan, AirVent, Plug, Pencil } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import { Switch } from './ui/switch';
 import { Slider } from './ui/slider';
-import type { DeviceCardProps } from '@/types';
+import { Button } from './ui/button';
+import type { DeviceCardProps, Device } from '@/types';
 
 const iconMap: Record<string, React.ComponentType<LucideProps>> = {
   light: Lightbulb,
@@ -34,6 +35,9 @@ export function DeviceCard({
   onBrightnessChange,
   onSpeedChange,
   onTemperatureChange,
+  onEdit,
+  onClick,
+  isSelected = false,
 }: DeviceCardProps) {
   const Icon = iconMap[type];
   const gradient = colorMap[type];
@@ -47,6 +51,18 @@ export function DeviceCard({
     return `${Math.floor(diff / 3600)}h ago`;
   };
 
+  const device: Device = {
+    id,
+    name,
+    type,
+    status,
+    room,
+    brightness,
+    speed,
+    temperature,
+    lastActive,
+  };
+
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.9 }}
@@ -54,9 +70,14 @@ export function DeviceCard({
       whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.2 }}
     >
-      <Card className={`bg-slate-800/50 border-slate-700 backdrop-blur-sm overflow-hidden transition-all ${
-        status === 'on' ? 'ring-2 ring-blue-500/50' : ''
-      }`}>
+      <Card 
+        className={`bg-slate-800/50 border-slate-700 backdrop-blur-sm overflow-hidden transition-all cursor-pointer ${
+          status === 'on' ? 'ring-2 ring-blue-500/50' : ''
+        } ${
+          isSelected ? 'ring-2 ring-yellow-500/50 border-yellow-500/30' : ''
+        }`}
+        onClick={() => onClick?.(id)}
+      >
         <CardContent className="p-6">
           <div className="flex items-start justify-between mb-4">
             <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center ${
@@ -64,10 +85,29 @@ export function DeviceCard({
             }`}>
               <Icon className="w-6 h-6 text-white" />
             </div>
+            <div className="flex items-center gap-2">
+              {onEdit && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 w-8 p-0 text-slate-400 hover:text-white hover:bg-slate-700/50"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onEdit(device);
+                  }}
+                  title="Chỉnh sửa thiết bị"
+                >
+                  <Pencil className="w-4 h-4" />
+                </Button>
+              )}
             <Switch
               checked={status === 'on'}
-              onCheckedChange={() => onToggle(id)}
+              onCheckedChange={(e) => {
+                e.stopPropagation();
+                onToggle(id);
+              }}
             />
+            </div>
           </div>
           
           <div className="space-y-1 mb-4">

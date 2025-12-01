@@ -29,5 +29,5 @@ def create_user_device_dict(user_id: str, device_id: str) -> dict:
     return {
         "user_id": user_id,
         "device_id": device_id,
-        "created_at": datetime.utcnow().isoformat()
+        "created_at": datetime.utcnow()
     }

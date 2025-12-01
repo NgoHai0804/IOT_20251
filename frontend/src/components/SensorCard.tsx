@@ -40,11 +40,11 @@ export function SensorCard({ name, type, value, unit, room, lastUpdate, trend }:
       whileHover={{ scale: 1.02 }}
       transition={{ duration: 0.2 }}
     >
-      <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm overflow-hidden">
-        <CardContent className="p-6">
+      <Card className="bg-slate-800/50 border-slate-700 backdrop-blur-sm overflow-hidden hover:border-slate-600 transition-all">
+        <CardContent className="p-5">
           <div className="flex items-start justify-between mb-4">
-            <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center`}>
-              <Icon className="w-6 h-6 text-white" />
+            <div className={`w-14 h-14 rounded-xl bg-gradient-to-br ${gradient} flex items-center justify-center shadow-lg`}>
+              <Icon className="w-7 h-7 text-white" />
             </div>
             {trend && (
               <div className={`text-xs px-2 py-1 rounded ${
@@ -57,16 +57,16 @@ export function SensorCard({ name, type, value, unit, room, lastUpdate, trend }:
             )}
           </div>
           
-          <div className="space-y-1">
-            <p className="text-slate-400 text-sm">{name}</p>
-            <div className="flex items-baseline gap-1">
-              <span className="text-white text-3xl">{value}</span>
-              <span className="text-slate-400 text-lg">{unit}</span>
+          <div className="space-y-2">
+            <p className="text-slate-300 text-sm font-medium truncate">{name}</p>
+            <div className="flex items-baseline gap-2">
+              <span className="text-white text-3xl font-bold">{value.toFixed(1)}</span>
+              <span className="text-slate-400 text-base">{unit}</span>
             </div>
           </div>
           
-          <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between text-xs">
-            <span className="text-slate-500">{room}</span>
+          <div className="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center text-xs">
+            <span className="text-slate-400 bg-slate-700/30 px-2 py-1 rounded">{room}</span>
             <span className="text-slate-500">{formatTime(lastUpdate)}</span>
           </div>
         </CardContent>
