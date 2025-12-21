@@ -19,7 +19,7 @@ services:
       
       # CORS Configuration (cập nhật với domain Render của bạn)
       - key: CORS_ORIGINS
-        value: https://your-render-app.onrender.com,http://localhost:5173
+        value: https://iot-20251.onrender.com,http://localhost:5173
       
       # Database Configuration
       - key: MONGO_URI
@@ -49,4 +49,4 @@ services:
       
       # Frontend API URL (cho build time - Render sẽ tự động set)
       - key: VITE_API_BASE_URL
-        sync: false
+        value: https://iot-20251.onrender.com

@@ -21,7 +21,7 @@ COPY frontend/ ./
 
 # Build arguments cho frontend
 ARG VITE_API_BASE_URL
-ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://iot-20251.onrender.com}
 ENV NODE_ENV=production
 
 # Build frontend

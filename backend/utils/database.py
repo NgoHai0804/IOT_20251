@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 # Tải biến môi trường
 load_dotenv()
 
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://ngongochai0804_db_user:vbahGfmvhvkbxg4w@cluster0.upihwwx.mongodb.net/?appName=Cluster0")
+MONGO_URI = os.getenv("MONGO_URI")
 DB_NAME = os.getenv("DB_NAME", "iot_app")
 
 client = MongoClient(MONGO_URI)
