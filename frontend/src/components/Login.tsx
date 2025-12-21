@@ -31,12 +31,12 @@ export function Login({ onLogin }: LoginProps) {
     setLoading(true);
     try {
       const result = await authAPI.login(email, password);
-      toast.success('Login successful!');
+      toast.success('Login successful!', { duration: 1000 });
       onLogin(result.user.full_name || result.user.email || email);
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed. Please check your credentials.';
       setError(errorMessage);
-      toast.error(errorMessage);
+      toast.error(errorMessage, { duration: 1000 });
     } finally {
       setLoading(false);
     }
@@ -49,58 +49,58 @@ export function Login({ onLogin }: LoginProps) {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-md bg-slate-800/50 border-slate-700 backdrop-blur-sm">
-          <CardHeader className="space-y-4">
+        <Card className="w-full max-w-md bg-slate-800/80 border-slate-700/80 backdrop-blur-xl shadow-2xl">
+          <CardHeader className="space-y-5">
             <motion.div
               className="flex justify-center"
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
             >
-              <div className="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center">
-                <Home className="w-8 h-8 text-white" />
+              <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-cyan-500/30">
+                <Home className="w-10 h-10 text-white" />
               </div>
             </motion.div>
             <div className="text-center">
-              <CardTitle className="text-white">Smart Home System</CardTitle>
-              <CardDescription className="text-slate-400">
-                Sign in to manage your devices
+              <CardTitle className="text-white text-2xl font-bold mb-2">Smart Home System</CardTitle>
+              <CardDescription className="text-cyan-200/70 text-base">
+                Đăng nhập để quản lý thiết bị của bạn
               </CardDescription>
             </div>
           </CardHeader>
           <CardContent>
-            <form onSubmit={handleSubmit} className="space-y-4">
+            <form onSubmit={handleSubmit} className="space-y-5">
               <div className="space-y-2">
-                <label htmlFor="email" className="text-slate-300">
+                <label htmlFor="email" className="text-cyan-200/80 font-medium">
                   Email
                 </label>
                 <div className="relative">
-                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-cyan-400/70" />
                   <Input
                     id="email"
                     type="email"
-                    placeholder="Enter your email"
+                    placeholder="Nhập email của bạn"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    className="pl-11 bg-slate-900/60 border-slate-700/80 text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:ring-cyan-500/30"
                     disabled={loading}
                   />
                 </div>
               </div>
               
               <div className="space-y-2">
-                <label htmlFor="password" className="text-slate-300">
-                  Password
+                <label htmlFor="password" className="text-cyan-200/80 font-medium">
+                  Mật khẩu
                 </label>
                 <div className="relative">
-                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-cyan-400/70" />
                   <Input
                     id="password"
                     type="password"
-                    placeholder="Enter your password"
+                    placeholder="Nhập mật khẩu của bạn"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    className="pl-11 bg-slate-900/60 border-slate-700/80 text-white placeholder:text-slate-500 focus:border-cyan-500/50 focus:ring-cyan-500/30"
                     disabled={loading}
                   />
                 </div>
@@ -110,7 +110,7 @@ export function Login({ onLogin }: LoginProps) {
                 <motion.p
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
-                  className="text-red-400 text-sm"
+                  className="text-red-400 text-sm font-medium bg-red-500/10 border border-red-500/30 rounded-lg p-3"
                 >
                   {error}
                 </motion.p>
@@ -118,14 +118,14 @@ export function Login({ onLogin }: LoginProps) {
               
               <Button
                 type="submit"
-                className="w-full bg-blue-600 hover:bg-blue-700 text-white"
+                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold shadow-lg shadow-cyan-500/30 h-11"
                 disabled={loading}
               >
-                {loading ? 'Signing in...' : 'Sign In'}
+                {loading ? 'Đang đăng nhập...' : 'Đăng Nhập'}
               </Button>
               
-              <p className="text-center text-slate-400 text-sm">
-                Password must be at least 8 characters
+              <p className="text-center text-cyan-200/60 text-sm">
+                Mật khẩu phải có ít nhất 8 ký tự
               </p>
             </form>
           </CardContent>

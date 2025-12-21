@@ -33,12 +33,12 @@ export function DeleteRoomDialog({
     setLoading(true);
     try {
       await roomAPI.deleteRoom(roomName);
-      toast.success(`Đã xóa phòng "${roomName}". ${deviceCount} thiết bị đã được chuyển sang "Không xác định"`);
+      toast.success(`Đã xóa phòng "${roomName}"${deviceCount > 0 ? `. ${deviceCount} thiết bị đã được gỡ khỏi phòng` : ''}`, { duration: 1000 });
       onSuccess();
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error deleting room:', error);
-      toast.error(error.message || 'Không thể xóa phòng');
+      toast.error(error.message || 'Không thể xóa phòng', { duration: 1000 });
     } finally {
       setLoading(false);
     }
@@ -60,7 +60,11 @@ export function DeleteRoomDialog({
         <div className="py-4">
           <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4">
             <p className="text-yellow-400 text-sm">
-              <strong>Lưu ý:</strong> Tất cả {deviceCount} thiết bị trong phòng này sẽ được chuyển sang phòng "Không xác định".
+              <strong>Lưu ý:</strong> {
+                deviceCount > 0 
+                  ? `Tất cả ${deviceCount} thiết bị trong phòng này sẽ bị gỡ khỏi phòng.`
+                  : 'Phòng này không có thiết bị nào.'
+              }
             </p>
           </div>
         </div>
@@ -88,4 +92,6 @@ export function DeleteRoomDialog({
     </Dialog>
   );
 }
+
+
 

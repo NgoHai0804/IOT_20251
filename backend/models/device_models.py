@@ -1,29 +1,37 @@
-# app/models/device_models.py
+# device_models.py
 import uuid
 from datetime import datetime
 
 
-def create_device_dict(device_serial: str, device_name: str, device_type: str, location: str = "", status: str = "offline", note: str = "", device_password: str = None) -> dict:
+def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32", ip: str = "", status: str = "offline", enabled: bool = True) -> dict:
     """
-    Tạo dict device với mật khẩu nếu có
+    Tạo dict Device
+    {
+      "_id": "device_01",
+      "name": "ESP32 Phòng Khách",
+      "type": "esp32",
+      "status": "online",
+      "ip": "192.168.1.20",
+      "enabled": true
+    }
+    Note: 
+    - room_id đã bị bỏ, thay vào đó Room sẽ chứa device_ids
+    - user_id đã bị bỏ, sử dụng bảng user_room_devices để quản lý mối liên kết
     """
-    return {
-        "device_id": str(uuid.uuid4()),   # UUID cho device
-        "device_serial": device_serial,
-        "device_name": device_name,
-        "device_type": device_type,
-        "location": location,
+    device_dict = {
+        "_id": f"device_{str(uuid.uuid4())[:8]}",  # device_01, device_02...
+        "name": name,
+        "type": device_type,
         "status": status,
-        "note": note,
-        "device_password": device_password,
+        "ip": ip,
+        "enabled": enabled,
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
+    # room_id và user_id không còn được sử dụng
+    return device_dict
 
 
-# ==========================
-# Add a Device for a User
-# ==========================
 def create_user_device_dict(user_id: str, device_id: str) -> dict:
     """Liên kết User <-> Device"""
     return {

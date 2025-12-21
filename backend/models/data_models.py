@@ -2,18 +2,24 @@ from datetime import datetime
 import uuid
 
 
-def create_sensor_data_dict(sensor_id: str, device_id: str, value: float, sensor_type: str = "", extra: dict = None, note: str = "") -> dict:
+def create_sensor_data_dict(sensor_id: str, value: float, timestamp: datetime = None, device_id: str = None) -> dict:
     """
-    Tạo dict sensor data để lưu vào MongoDB
+    Tạo dict SensorData
+    {
+      "sensor_data_id": "uuid",
+      "sensor_id": "sensor_01",
+      "device_id": "device_01",  # Thêm để query dễ dàng hơn
+      "value": 30,
+      "timestamp": "2025-12-21T09:30:00Z"
+    }
     """
-    return {
+    sensor_data = {
         "sensor_data_id": str(uuid.uuid4()),
         "sensor_id": sensor_id,
-        "device_id": device_id,
-        "sensor_type": sensor_type,
         "value": value,
-        "extra": extra or {},
-        "note": note,
-        "timestamp": datetime.utcnow(),
+        "timestamp": timestamp or datetime.utcnow(),
         "created_at": datetime.utcnow()
     }
+    if device_id:
+        sensor_data["device_id"] = device_id
+    return sensor_data

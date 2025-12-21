@@ -14,4 +14,6 @@ export default defineConfig({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  // Đảm bảo các biến môi trường được expose cho client
+  envPrefix: 'VITE_',
 })

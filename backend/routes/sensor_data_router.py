@@ -94,7 +94,8 @@ async def get_sensor_statistics_route(
 
 @router.get("/trends", response_model=ResponseSchema)
 async def get_sensor_trends_route(
-    device_id: Optional[str] = Query(None, description="Filter by device ID"),
+    device_id: Optional[str] = Query(None, description="Filter by device ID (nếu có thì chỉ lấy dữ liệu của device này)"),
+    room: Optional[str] = Query(None, description="Filter by room/location (nếu có thì lấy dữ liệu của tất cả devices trong phòng)"),
     hours: int = Query(24, ge=1, le=168, description="Number of hours to look back (1-168, default: 24)"),
     limit_per_type: int = Query(100, ge=10, le=500, description="Maximum data points per sensor type (10-500, default: 100)"),
     current_user: dict = Depends(get_current_user)
@@ -102,9 +103,13 @@ async def get_sensor_trends_route(
     """
     Lấy dữ liệu trends đã được format sẵn cho charts
     
-    - **device_id**: Lọc theo device ID (optional, nếu không có thì lấy tất cả devices của user)
+    - **device_id**: Lọc theo device ID (nếu có thì chỉ lấy dữ liệu của device này)
+    - **room**: Lọc theo room/location (nếu có thì lấy dữ liệu của tất cả devices trong phòng)
     - **hours**: Số giờ quay lại để lấy dữ liệu (1-168, mặc định: 24)
     - **limit_per_type**: Số điểm dữ liệu tối đa cho mỗi loại sensor (10-500, mặc định: 100)
+    
+    Lưu ý: Nếu có cả device_id và room, device_id sẽ được ưu tiên.
+    Nếu không có cả hai, lấy tất cả devices của user.
     
     Trả về dữ liệu đã được format sẵn theo sensor type:
     - temperature: Array of {time, value}
@@ -116,6 +121,7 @@ async def get_sensor_trends_route(
     return sensor_data_controller.get_sensor_trends(
         current_user,
         device_id=device_id,
+        room=room,
         hours=hours,
         limit_per_type=limit_per_type
     )

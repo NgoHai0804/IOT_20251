@@ -1,23 +1,42 @@
 from pymongo import MongoClient
 from datetime import datetime
 from typing import Any, Dict
+import os
+from dotenv import load_dotenv
 
-MONGO_URI = "mongodb://localhost:27017"
-DB_NAME = "iot_app"
+# Tải biến môi trường
+load_dotenv()
+
+MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://ngongochai0804_db_user:vbahGfmvhvkbxg4w@cluster0.upihwwx.mongodb.net/?appName=Cluster0")
+DB_NAME = os.getenv("DB_NAME", "iot_app")
 
 client = MongoClient(MONGO_URI)
 db = client[DB_NAME]
 
-# Collections
+# Các collection
 users_collection = db["users"]
+rooms_collection = db["rooms"]
 devices_collection = db["devices"]
-user_devices_collection = db["user_devices"]
+user_devices_collection = db["user_devices"]  # Legacy, giữ lại để tương thích
+user_room_devices_collection = db["user_room_devices"]  # Bảng mới: quản lý mối liên kết user-room-device
 sensors_collection = db["sensors"]
+actuators_collection = db["actuators"]
 sensor_data_collection = db["sensor_data"]
+notifications_collection = db["notifications"]
+
+# Tạo index cho user_room_devices_collection để đảm bảo unique và query nhanh
+try:
+    user_room_devices_collection.create_index([("user_id", 1), ("room_id", 1), ("device_id", 1)], unique=True)
+    user_room_devices_collection.create_index([("user_id", 1)])
+    user_room_devices_collection.create_index([("room_id", 1)])
+    user_room_devices_collection.create_index([("device_id", 1)])
+except Exception as e:
+    # Index có thể đã tồn tại, bỏ qua lỗi
+    pass
 
 
 def sanitize_for_json(obj: Any) -> Any:
-    """Convert MongoDB objects to JSON serializable format"""
+    """Chuyển đổi các đối tượng MongoDB sang định dạng JSON có thể serialize"""
     if isinstance(obj, datetime):
         return obj.isoformat()
     elif hasattr(obj, '__dict__'):

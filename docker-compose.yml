@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  iot-backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000}
+    image: ngohai0804/iot-smart-home:latest
+    container_name: iot-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # Server Configuration
+      - BACKEND_HOST=0.0.0.0
+      - BACKEND_PORT=8000
+      
+      # CORS Configuration
+      - CORS_ORIGINS=${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      
+      # Database Configuration
+      - MONGO_URI=${MONGO_URI}
+      - DB_NAME=${DB_NAME:-iot_app}
+      
+      # JWT Configuration
+      - SECRET_KEY=${SECRET_KEY}
+      - ALGORITHM=${ALGORITHM:-HS256}
+      - ACCESS_TOKEN_EXPIRE_MINUTES=${ACCESS_TOKEN_EXPIRE_MINUTES:-1440}
+      
+      # MQTT Configuration
+      - MQTT_BROKER=${MQTT_BROKER}
+      - MQTT_PORT=${MQTT_PORT:-8883}
+      - MQTT_PORT_WS=${MQTT_PORT_WS:-8884}
+      - MQTT_USERNAME=${MQTT_USERNAME}
+      - MQTT_PASSWORD=${MQTT_PASSWORD}
+    env_file:
+      - .env
+    networks:
+      - iot-network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  iot-network:
+    driver: bridge

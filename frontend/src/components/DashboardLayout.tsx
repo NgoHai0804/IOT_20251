@@ -33,50 +33,50 @@ export function DashboardLayout({
       )}
 
       {/* Sidebar */}
-      <aside className="fixed left-0 top-0 h-full w-64 bg-slate-800/50 backdrop-blur-lg border-r border-slate-700 z-50 -translate-x-full lg:translate-x-0 transition-transform duration-300 data-[open=true]:translate-x-0"
+      <aside className="fixed left-0 top-0 h-full w-64 bg-slate-900/95 backdrop-blur-xl border-r border-slate-800/80 z-50 -translate-x-full lg:translate-x-0 transition-transform duration-300 data-[open=true]:translate-x-0 shadow-2xl"
         data-open={sidebarOpen}
       >
         <div className="flex flex-col h-full">
           {/* Logo */}
-          <div className="p-6 border-b border-slate-700">
+          <div className="p-6 border-b border-slate-800/80">
             <div className="flex items-center gap-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center">
+              <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
                 <Home className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h1 className="text-white">Smart Home</h1>
-                <p className="text-slate-400 text-sm">Control Center</p>
+                <h1 className="text-white font-bold text-lg">Smart Home</h1>
+                <p className="text-cyan-200/70 text-xs font-medium">Control Center</p>
               </div>
             </div>
           </div>
 
           {/* Navigation */}
-          <nav className="flex-1 p-4 space-y-2">
+          <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
             {navItems.map((item) => {
               const Icon = item.icon;
               const showBadge = item.id === 'notifications' && unreadNotifications > 0;
+              const isActive = location.pathname === item.path;
 
               return (
                 <NavLink
                   key={item.id}
                   to={item.path}
-                  className={() => {
-                    const isActive = location.pathname === item.path;
-                    
-                    return `w-full justify-start gap-3 flex items-center p-3 rounded-lg transition-colors ${
-                      isActive
-                        ? 'bg-blue-600 text-white'
-                        : 'text-slate-300 hover:text-white hover:bg-slate-700/50'
-                    }`;
-                  }}
+                  className={`w-full justify-start gap-3 flex items-center p-3.5 rounded-xl transition-all duration-200 relative group ${
+                    isActive
+                      ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-white shadow-lg shadow-cyan-500/20 border border-cyan-500/30'
+                      : 'text-slate-300 hover:text-white hover:bg-slate-800/60'
+                  }`}
                   onClick={() => setSidebarOpen(false)}
                 >
-                  <Icon className="w-5 h-5" />
-                  <span className="flex-1 text-left">{item.label}</span>
+                  <Icon className={`w-5 h-5 transition-transform duration-200 ${isActive ? 'text-cyan-400' : 'group-hover:scale-110'}`} />
+                  <span className="flex-1 text-left font-medium">{item.label}</span>
                   {showBadge && (
-                    <Badge className="bg-red-500 text-white">
+                    <Badge className="bg-gradient-to-r from-red-500 to-pink-500 text-white border-0 shadow-lg shadow-red-500/30">
                       {unreadNotifications}
                     </Badge>
+                  )}
+                  {isActive && (
+                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-gradient-to-b from-cyan-400 to-blue-500 rounded-r-full" />
                   )}
                 </NavLink>
               );
@@ -84,23 +84,23 @@ export function DashboardLayout({
           </nav>
 
           {/* User Profile */}
-          <div className="p-4 border-t border-slate-700">
-            <div className="flex items-center gap-3 mb-3 p-3 bg-slate-700/30 rounded-lg">
-              <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center">
+          <div className="p-4 border-t border-slate-800/80">
+            <div className="flex items-center gap-3 mb-3 p-3.5 bg-gradient-to-r from-slate-800/60 to-slate-800/40 rounded-xl border border-slate-700/50">
+              <div className="w-11 h-11 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-full flex items-center justify-center shadow-lg shadow-cyan-500/30">
                 <User className="w-5 h-5 text-white" />
               </div>
               <div className="flex-1 min-w-0">
-                <p className="text-white text-sm truncate">{username}</p>
-                <p className="text-slate-400 text-xs">User</p>
+                <p className="text-white text-sm font-semibold truncate">{username}</p>
+                <p className="text-cyan-200/60 text-xs">Người dùng</p>
               </div>
             </div>
             <Button
               variant="outline"
-              className="w-full gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-300 transition-all duration-200"
+              className="w-full gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10 hover:border-red-500/50 hover:text-red-300 transition-all duration-200 font-medium"
               onClick={onLogout}
             >
               <LogOut className="w-4 h-4" />
-              Logout
+              Đăng xuất
             </Button>
           </div>
         </div>
@@ -108,38 +108,21 @@ export function DashboardLayout({
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col lg:ml-64">
-        {/* Header */}
-        <header className="sticky top-0 z-30 bg-slate-800/50 backdrop-blur-lg border-b border-slate-700">
-          <div className="flex items-center justify-between p-4">
-            <div className="flex items-center gap-4">
-              <Button
-                variant="ghost"
-                size="sm"
-                className="lg:hidden text-white"
-                onClick={() => setSidebarOpen(!sidebarOpen)}
-              >
-                {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-              </Button>
-              <div>
-                <h2 className="text-white capitalize">
-                  {location.pathname === '/' ? 'Dashboard' : 
-                   location.pathname.slice(1).charAt(0).toUpperCase() + location.pathname.slice(2)}
-                </h2>
-                <p className="text-slate-400 text-sm">
-                  {new Date().toLocaleDateString('en-US', {
-                    weekday: 'long',
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                  })}
-                </p>
-              </div>
-            </div>
-          </div>
-        </header>
+        {/* Header - Removed for all pages */}
+        {/* Mobile menu button */}
+        <div className="lg:hidden sticky top-0 z-30 bg-slate-900/95 backdrop-blur-xl border-b border-slate-800/80 p-3 shadow-lg">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="text-white hover:bg-slate-800/60"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+          >
+            {sidebarOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+          </Button>
+        </div>
 
         {/* Content */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8">
+        <main className={`flex-1 ${location.pathname === '/devices' ? 'p-0' : 'p-4 md:p-6 lg:p-8'}`}>
           <motion.div
             key={location.pathname}
             initial={{ opacity: 0, y: 20 }}

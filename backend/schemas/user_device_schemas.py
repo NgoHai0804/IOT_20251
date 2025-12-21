@@ -27,6 +27,7 @@ class UpdateDevice(BaseModel):
     - location: Vị trí/phòng của thiết bị (tùy chọn)
     - note: Ghi chú (tùy chọn)
     - status: Trạng thái thiết bị (tùy chọn)
+    - cloud_status: Trạng thái cloud (on/off) - điều khiển từ server (tùy chọn)
     """
     device_id: str = Field(..., description="Device ID (UUID) - required")
     device_name: Optional[str] = Field(None, description="Device name")
@@ -34,17 +35,22 @@ class UpdateDevice(BaseModel):
     location: Optional[str] = Field(None, description="Device location/room")
     note: Optional[str] = Field(None, description="Device note")
     status: Optional[str] = Field(None, description="Device status (online/offline)")
+    cloud_status: Optional[str] = Field(None, description="Cloud status (on/off) - control from server")
 
 
 # ======= Add Device =======
 class AddDevice(BaseModel):
     """
     Schema để thêm thiết bị cho người dùng
-    - device_serial: ID vật lý của thiết bị (serial number) - đây là ID mà người dùng nhập
-    - password: Mật khẩu của thiết bị (nếu thiết bị có mật khẩu)
+    - device_id: ID thiết bị (bắt buộc)
+    - device_name: Tên thiết bị (bắt buộc)
+    - location: Phòng/vị trí thiết bị (bắt buộc)
+    - note: Ghi chú (tùy chọn)
     """
-    device_serial: str = Field(..., description="Device serial number (physical device ID)")
-    password: Optional[str] = Field(None, description="Device password (if required)")
+    device_id: str = Field(..., description="Device ID - required")
+    device_name: str = Field(..., description="Device name - required")
+    location: str = Field(..., description="Device location/room - required")
+    note: Optional[str] = Field(None, description="Device note - optional")
 
 
 # ======= Device cơ bản =======

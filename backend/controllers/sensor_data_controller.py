@@ -4,6 +4,7 @@ from utils.database import (
     sensor_data_collection, 
     devices_collection, 
     user_devices_collection,
+    user_room_devices_collection,
     sensors_collection,
     sanitize_for_json
 )
@@ -30,25 +31,33 @@ def get_sensor_data(
         # Xây dựng query filter
         query = {}
         
-        # Kiểm tra quyền truy cập device
+        # Kiểm tra quyền truy cập device từ bảng user_room_devices
         if device_id:
             # Kiểm tra device có thuộc về user không
-            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
-                return JSONResponse(
-                    status_code=status.HTTP_200_OK,
-                    content={
-                        "status": False,
-                        "message": "Device not linked to this user or not found",
-                        "data": None
-                    }
-                )
+                # Thử legacy table (backward compatible)
+                legacy_link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+                if not legacy_link:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "status": False,
+                            "message": "Device not linked to this user or not found",
+                            "data": None
+                        }
+                    )
             query["device_id"] = device_id
         
-        # Nếu không có device_id, lấy tất cả devices của user
+        # Nếu không có device_id, lấy tất cả devices của user từ bảng user_room_devices
         else:
-            linked_devices = user_devices_collection.find({"user_id": user_id})
-            device_ids = [link["device_id"] for link in linked_devices]
+            linked_devices = user_room_devices_collection.find({"user_id": user_id})
+            device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
+            
+            # Nếu không có, thử legacy table
+            if not device_ids:
+                legacy_links = user_devices_collection.find({"user_id": user_id})
+                device_ids = [link["device_id"] for link in legacy_links]
             
             if not device_ids:
                 return JSONResponse(
@@ -153,23 +162,70 @@ def get_latest_sensor_data(
         
         query = {}
         
-        # Kiểm tra quyền truy cập device
+        # Kiểm tra quyền truy cập device từ bảng user_room_devices
         if device_id:
-            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            # Kiểm tra device thuộc về user
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
                     content={
                         "status": False,
-                        "message": "Device not linked to this user or not found",
+                        "message": "Device not found or does not belong to this user",
                         "data": None
                     }
                 )
-            query["device_id"] = device_id
+            device = devices_collection.find_one({"_id": device_id})
+            if not device:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not found",
+                        "data": None
+                    }
+                )
+            
+            # Có device_id cụ thể, lấy sensors của device này
+            device_sensors = list(sensors_collection.find({"device_id": device_id}))
+            sensor_ids = [s["_id"] for s in device_sensors]
+            
+            if sensor_id:
+                # Kiểm tra sensor_id có thuộc device không
+                if sensor_id not in sensor_ids:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "status": False,
+                            "message": "Sensor not found or does not belong to device",
+                            "data": None
+                        }
+                    )
+                query["sensor_id"] = sensor_id
+            else:
+                # Query theo sensor_id (vì sensor_data có thể không có device_id)
+                if sensor_ids:
+                    query["sensor_id"] = {"$in": sensor_ids}
+                else:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "status": True,
+                            "message": "No sensors found for device",
+                            "data": {"sensor_data": [], "count": 0}
+                        }
+                    )
         else:
-            # Lấy tất cả devices của user
-            linked_devices = user_devices_collection.find({"user_id": user_id})
-            device_ids = [link["device_id"] for link in linked_devices]
+            # Lấy tất cả devices của user từ bảng user_room_devices
+            linked_devices = user_room_devices_collection.find({"user_id": user_id})
+            device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
+            
+            # Nếu không có devices, thử legacy table (backward compatible)
+            if not device_ids:
+                legacy_links = user_devices_collection.find({"user_id": user_id})
+                legacy_device_ids = [link["device_id"] for link in legacy_links]
+                if legacy_device_ids:
+                    device_ids = legacy_device_ids
             
             if not device_ids:
                 return JSONResponse(
@@ -177,15 +233,44 @@ def get_latest_sensor_data(
                     content={
                         "status": True,
                         "message": "No devices found for this user",
-                        "data": {"sensor_data": []}
+                        "data": {"sensor_data": [], "count": 0}
                     }
                 )
-            query["device_id"] = {"$in": device_ids}
-        
-        if sensor_id:
-            query["sensor_id"] = sensor_id
+            
+            # Lấy tất cả sensors của các devices này
+            # Query sensor_data qua sensor_id (vì sensor_data cũ có thể không có device_id)
+            user_sensors = list(sensors_collection.find({"device_id": {"$in": device_ids}}))
+            sensor_ids = [s["_id"] for s in user_sensors]
+            
+            if not sensor_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No sensors found for user devices",
+                        "data": {"sensor_data": [], "count": 0}
+                    }
+                )
+            
+            # Query theo sensor_id thay vì device_id (vì sensor_data có thể không có device_id)
+            if sensor_id:
+                # Kiểm tra sensor_id có thuộc user không
+                if sensor_id not in sensor_ids:
+                    return JSONResponse(
+                        status_code=status.HTTP_200_OK,
+                        content={
+                            "status": False,
+                            "message": "Sensor not found or does not belong to user",
+                            "data": None
+                        }
+                    )
+                query["sensor_id"] = sensor_id
+            else:
+                query["sensor_id"] = {"$in": sensor_ids}
         
         # Lấy dữ liệu mới nhất cho mỗi sensor
+        # Nếu query có device_id, dùng trực tiếp
+        # Nếu không, query qua sensor_id (đã filter ở trên)
         pipeline = [
             {"$match": query},
             {"$sort": {"timestamp": -1}},
@@ -375,12 +460,17 @@ def get_sensor_statistics(
 def get_sensor_trends(
     user_data: dict,
     device_id: Optional[str] = None,
+    room: Optional[str] = None,
     hours: int = 24,
     limit_per_type: int = 100
 ):
     """
     Lấy dữ liệu trends đã được format sẵn cho charts
     Trả về dữ liệu theo sensor type: temperature, humidity, energy
+    
+    - device_id: Nếu có, chỉ lấy dữ liệu của device này
+    - room: Nếu có (và không có device_id), lấy dữ liệu của tất cả devices trong phòng
+    - Nếu không có cả hai, lấy tất cả devices của user
     """
     try:
         user_id = str(user_data["_id"])
@@ -394,7 +484,9 @@ def get_sensor_trends(
         }
         
         # Kiểm tra quyền truy cập device
+        # Ưu tiên device_id trước, sau đó mới đến room
         if device_id:
+            # Chỉ lấy dữ liệu của device này
             link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
                 return JSONResponse(
@@ -406,7 +498,50 @@ def get_sensor_trends(
                     }
                 )
             query["device_id"] = device_id
+        elif room:
+            # Lấy tất cả devices trong phòng này
+            # Lấy danh sách devices của user
+            linked_devices = user_devices_collection.find({"user_id": user_id})
+            linked_device_ids = [link["device_id"] for link in linked_devices]
+            
+            if not linked_device_ids:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": "No devices found for this user",
+                        "data": {
+                            "temperature": [],
+                            "humidity": [],
+                            "energy": []
+                        }
+                    }
+                )
+            
+            # Lấy thông tin devices và filter theo location (room)
+            devices_in_room = devices_collection.find({
+                "device_id": {"$in": linked_device_ids},
+                "location": room
+            })
+            device_ids_in_room = [device["device_id"] for device in devices_in_room]
+            
+            if not device_ids_in_room:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": True,
+                        "message": f"No devices found in room: {room}",
+                        "data": {
+                            "temperature": [],
+                            "humidity": [],
+                            "energy": []
+                        }
+                    }
+                )
+            
+            query["device_id"] = {"$in": device_ids_in_room}
         else:
+            # Lấy tất cả devices của user
             linked_devices = user_devices_collection.find({"user_id": user_id})
             device_ids = [link["device_id"] for link in linked_devices]
             

@@ -17,7 +17,7 @@ interface EditRoomDialogProps {
   roomName: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: () => void;
+  onSuccess: (newRoomName?: string) => void;
 }
 
 export function EditRoomDialog({ roomName, open, onOpenChange, onSuccess }: EditRoomDialogProps) {
@@ -34,24 +34,24 @@ export function EditRoomDialog({ roomName, open, onOpenChange, onSuccess }: Edit
     e.preventDefault();
 
     if (!newRoomName.trim()) {
-      toast.error('Tên phòng không được để trống');
+      toast.error('Tên phòng không được để trống', { duration: 1000 });
       return;
     }
 
     if (newRoomName.trim() === roomName) {
-      toast.error('Tên phòng mới phải khác tên phòng cũ');
+      toast.error('Tên phòng mới phải khác tên phòng cũ', { duration: 1000 });
       return;
     }
 
     setLoading(true);
     try {
       await roomAPI.updateRoomName(roomName, newRoomName.trim());
-      toast.success('Cập nhật tên phòng thành công');
-      onSuccess();
+      toast.success('Cập nhật tên phòng thành công', { duration: 1000 });
+      onSuccess(newRoomName.trim());
       onOpenChange(false);
     } catch (error: any) {
       console.error('Error updating room name:', error);
-      toast.error(error.message || 'Không thể cập nhật tên phòng');
+      toast.error(error.message || 'Không thể cập nhật tên phòng', { duration: 1000 });
     } finally {
       setLoading(false);
     }
@@ -104,4 +104,6 @@ export function EditRoomDialog({ roomName, open, onOpenChange, onSuccess }: Edit
     </Dialog>
   );
 }
+
+
 

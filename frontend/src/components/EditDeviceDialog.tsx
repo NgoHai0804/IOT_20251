@@ -24,12 +24,30 @@ import type { Device, EditDeviceDialogProps } from '@/types';
 export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDialogProps) {
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
+  
+  // Tìm room chứa device từ room.devices (từ API) thay vì room.device_ids
+  const deviceId = device._id || device.id;
+  const foundRoom = Array.isArray(rooms) ? rooms.find((r: any) => {
+    if (typeof r === 'string') return false;
+    // Kiểm tra nếu room có devices và device này có trong đó
+    if (r.devices && Array.isArray(r.devices)) {
+      return r.devices.some((d: Device) => (d._id || d.id) === deviceId);
+    }
+    return false;
+  }) : null;
+  
+  const deviceRoomId = foundRoom ? (typeof foundRoom === 'object' ? foundRoom._id : foundRoom) : '';
+  const deviceRoomName = foundRoom ? (typeof foundRoom === 'object' ? foundRoom.name : foundRoom) : '';
+  
   // Khởi tạo form với giá trị ban đầu từ device
   const [deviceName, setDeviceName] = useState(device.name);
   const [devicePassword, setDevicePassword] = useState('');
-  const [deviceRoom, setDeviceRoom] = useState(device.room);
+  const [deviceRoom, setDeviceRoom] = useState(deviceRoomId);
   const [customRoom, setCustomRoom] = useState('');
-  const [showCustomRoom, setShowCustomRoom] = useState(!rooms.includes(device.room));
+  
+  // Check if device room exists in rooms list
+  const roomExists = !!foundRoom;
+  const [showCustomRoom, setShowCustomRoom] = useState(!roomExists);
   
   // Không có useEffect để reset form - giữ nguyên input của user khi đang chỉnh sửa
   // Form chỉ được khởi tạo một lần khi component mount
@@ -37,6 +55,9 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
   const handleRoomChange = (value: string) => {
     if (value === 'custom') {
       setShowCustomRoom(true);
+      setDeviceRoom('');
+    } else if (value === 'none') {
+      setShowCustomRoom(false);
       setDeviceRoom('');
     } else {
       setShowCustomRoom(false);
@@ -47,8 +68,8 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!deviceName || !deviceRoom) {
-      toast.error('Vui lòng điền đầy đủ thông tin');
+    if (!deviceName) {
+      toast.error('Vui lòng điền tên thiết bị', { duration: 1000 });
       return;
     }
 
@@ -60,17 +81,42 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
         location?: string;
       } = {
         device_name: deviceName,
-        location: deviceRoom,
       };
+
+      // Chỉ cập nhật location nếu có (location không còn bắt buộc)
+      if (deviceRoom && deviceRoom !== 'none') {
+        updateData.location = deviceRoom;
+      }
 
       // Chỉ cập nhật mật khẩu nếu người dùng nhập
       if (devicePassword.trim()) {
         updateData.device_password = devicePassword;
       }
 
-      await deviceAPI.updateDevice(device.id, updateData);
+      const deviceIdToUpdate = device._id || device.id || device.device_id;
+      await deviceAPI.updateDevice(deviceIdToUpdate, updateData);
       
-      toast.success('Cập nhật thiết bị thành công');
+      // Nếu có thay đổi room, cập nhật qua API mới
+      if (deviceRoom && deviceRoom !== 'none' && deviceRoom !== deviceRoomId) {
+        // Tìm room_id từ room name hoặc room_id
+        const targetRoom = Array.isArray(rooms) ? rooms.find((r: any) => {
+          if (typeof r === 'string') return r === deviceRoom;
+          return r._id === deviceRoom || r.name === deviceRoom;
+        }) : null;
+        
+        if (targetRoom && typeof targetRoom === 'object') {
+          const { roomAPI } = await import('@/services/api');
+          await roomAPI.addDeviceToRoom(targetRoom._id, deviceIdToUpdate);
+        }
+      } else if (!deviceRoom || deviceRoom === 'none') {
+        // Xóa device khỏi room nếu không chọn phòng
+        if (deviceRoomId) {
+          const { roomAPI } = await import('@/services/api');
+          await roomAPI.removeDeviceFromRoom(deviceRoomId, deviceIdToUpdate);
+        }
+      }
+      
+      toast.success('Cập nhật thiết bị thành công', { duration: 1000 });
       setOpen(false);
       // Delay refresh để đảm bảo dialog đóng trước
       setTimeout(() => {
@@ -78,7 +124,7 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
       }, 100);
     } catch (error: any) {
       console.error('Error updating device:', error);
-      toast.error(error.message || 'Không thể cập nhật thiết bị');
+      toast.error(error.message || 'Không thể cập nhật thiết bị', { duration: 1000 });
     } finally {
       setLoading(false);
     }
@@ -135,24 +181,31 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="edit-room">Phòng/Vị trí</Label>
+              <Label htmlFor="edit-room">Phòng/Vị trí (Tùy chọn)</Label>
               <Select
-                value={showCustomRoom ? 'custom' : deviceRoom}
+                value={showCustomRoom ? 'custom' : deviceRoom || 'none'}
                 onValueChange={handleRoomChange}
               >
                 <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
-                  <SelectValue placeholder="Chọn phòng" />
+                  <SelectValue placeholder="Không chọn phòng" />
                 </SelectTrigger>
                 <SelectContent className="bg-slate-800 border-slate-700">
-                  {rooms.map((room) => (
-                    <SelectItem
-                      key={room}
-                      value={room}
-                      className="text-white hover:bg-slate-700"
-                    >
-                      {room}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="none" className="text-white hover:bg-slate-700">
+                    Không chọn phòng
+                  </SelectItem>
+                  {rooms.map((room) => {
+                    const roomId = typeof room === 'string' ? room : room._id;
+                    const roomName = typeof room === 'string' ? room : room.name;
+                    return (
+                      <SelectItem
+                        key={roomId}
+                        value={roomId}
+                        className="text-white hover:bg-slate-700"
+                      >
+                        {roomName}
+                      </SelectItem>
+                    );
+                  })}
                   <SelectItem
                     value="custom"
                     className="text-white hover:bg-slate-700"
@@ -193,7 +246,7 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
             </Button>
             <Button
               type="submit"
-              disabled={loading || !deviceName || !deviceRoom}
+              disabled={loading || !deviceName}
               className="bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {loading ? 'Đang cập nhật...' : 'Cập nhật'}

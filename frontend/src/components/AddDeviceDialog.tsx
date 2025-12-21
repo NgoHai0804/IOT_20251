@@ -19,53 +19,60 @@ import {
   SelectTrigger,
   SelectValue,
 } from './ui/select';
-import type { Device, AddDeviceDialogProps } from '@/types';
+import { deviceAPI } from '@/services/api';
+import { toast } from 'sonner';
+import type { AddDeviceDialogProps } from '@/types';
 
 export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
   const [open, setOpen] = useState(false);
+  const [deviceId, setDeviceId] = useState('');
   const [deviceName, setDeviceName] = useState('');
-  const [deviceType, setDeviceType] = useState<'light' | 'fan' | 'ac' | 'plug'>('light');
   const [deviceRoom, setDeviceRoom] = useState('');
+  const [note, setNote] = useState('');
   const [customRoom, setCustomRoom] = useState('');
   const [showCustomRoom, setShowCustomRoom] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!deviceName || !deviceRoom) {
+    if (!deviceId || !deviceName) {
+      toast.error('Vui lòng điền đầy đủ thông tin bắt buộc', { duration: 1000 });
       return;
     }
 
-    const newDevice: Omit<Device, 'id' | 'lastActive'> = {
-      name: deviceName,
-      type: deviceType,
-      status: 'off',
-      room: deviceRoom,
-    };
-
-    // Add default values based on device type
-    if (deviceType === 'light') {
-      newDevice.brightness = 50;
-    } else if (deviceType === 'fan') {
-      newDevice.speed = 50;
-    } else if (deviceType === 'ac') {
-      newDevice.temperature = 24;
+    setLoading(true);
+    try {
+      // Nếu không chọn phòng, truyền empty string
+      const location = deviceRoom && deviceRoom !== 'none' ? deviceRoom : '';
+      await deviceAPI.addDevice(deviceId, deviceName, location, note || undefined);
+      toast.success('Thêm thiết bị thành công', { duration: 1000 });
+      
+      // Reset form
+      setDeviceId('');
+      setDeviceName('');
+      setDeviceRoom('');
+      setNote('');
+      setCustomRoom('');
+      setShowCustomRoom(false);
+      setOpen(false);
+      
+      // Refresh data
+      onAddDevice({} as any); // Pass empty object, the hook will refresh
+    } catch (error: any) {
+      console.error('Error adding device:', error);
+      toast.error(error.message || 'Không thể thêm thiết bị', { duration: 1000 });
+    } finally {
+      setLoading(false);
     }
-
-    onAddDevice(newDevice);
-
-    // Reset form
-    setDeviceName('');
-    setDeviceType('light');
-    setDeviceRoom('');
-    setCustomRoom('');
-    setShowCustomRoom(false);
-    setOpen(false);
   };
 
   const handleRoomChange = (value: string) => {
     if (value === 'custom') {
       setShowCustomRoom(true);
+      setDeviceRoom('');
+    } else if (value === 'none') {
+      setShowCustomRoom(false);
       setDeviceRoom('');
     } else {
       setShowCustomRoom(false);
@@ -76,9 +83,9 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button className="bg-blue-600 hover:bg-blue-700 text-white gap-2">
+        <Button className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-lg shadow-cyan-500/30 hover:shadow-cyan-500/50 transition-all duration-300 font-semibold">
           <Plus className="w-4 h-4" />
-          Add Device
+          Thêm Thiết Bị Mới
         </Button>
       </DialogTrigger>
       <DialogContent className="bg-slate-800 border-slate-700 text-white sm:max-w-[425px]">
@@ -91,10 +98,22 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
         <form onSubmit={handleSubmit}>
           <div className="grid gap-4 py-4">
             <div className="grid gap-2">
-              <Label htmlFor="name">Device Name</Label>
+              <Label htmlFor="deviceId">ID Thiết Bị <span className="text-red-400">*</span></Label>
+              <Input
+                id="deviceId"
+                placeholder="Nhập ID thiết bị"
+                value={deviceId}
+                onChange={(e) => setDeviceId(e.target.value)}
+                className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                required
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="name">Tên Thiết Bị <span className="text-red-400">*</span></Label>
               <Input
                 id="name"
-                placeholder="e.g., Living Room Light"
+                placeholder="e.g., Đèn phòng khách"
                 value={deviceName}
                 onChange={(e) => setDeviceName(e.target.value)}
                 className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
@@ -103,42 +122,26 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
             </div>
 
             <div className="grid gap-2">
-              <Label htmlFor="type">Device Type</Label>
-              <Select value={deviceType} onValueChange={(value: any) => setDeviceType(value)}>
+              <Label htmlFor="room">Chọn Phòng (Tùy chọn)</Label>
+              <Select value={showCustomRoom ? 'custom' : deviceRoom || 'none'} onValueChange={handleRoomChange}>
                 <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
-                  <SelectValue placeholder="Select device type" />
+                  <SelectValue placeholder="Không chọn phòng" />
                 </SelectTrigger>
                 <SelectContent className="bg-slate-800 border-slate-700">
-                  <SelectItem value="light" className="text-white hover:bg-slate-700">
-                    Light
+                  <SelectItem value="none" className="text-white hover:bg-slate-700">
+                    Không chọn phòng
                   </SelectItem>
-                  <SelectItem value="fan" className="text-white hover:bg-slate-700">
-                    Fan
-                  </SelectItem>
-                  <SelectItem value="ac" className="text-white hover:bg-slate-700">
-                    Air Conditioner
-                  </SelectItem>
-                  <SelectItem value="plug" className="text-white hover:bg-slate-700">
-                    Smart Plug
-                  </SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="grid gap-2">
-              <Label htmlFor="room">Room</Label>
-              <Select value={showCustomRoom ? 'custom' : deviceRoom} onValueChange={handleRoomChange}>
-                <SelectTrigger className="bg-slate-700/50 border-slate-600 text-white">
-                  <SelectValue placeholder="Select room" />
-                </SelectTrigger>
-                <SelectContent className="bg-slate-800 border-slate-700">
-                  {rooms.map((room) => (
-                    <SelectItem key={room} value={room} className="text-white hover:bg-slate-700">
-                      {room}
-                    </SelectItem>
-                  ))}
+                  {rooms.map((room) => {
+                    const roomId = typeof room === 'string' ? room : room._id;
+                    const roomName = typeof room === 'string' ? room : room.name;
+                    return (
+                      <SelectItem key={roomId} value={roomId} className="text-white hover:bg-slate-700">
+                        {roomName}
+                      </SelectItem>
+                    );
+                  })}
                   <SelectItem value="custom" className="text-white hover:bg-slate-700">
-                    + Add New Room
+                    + Thêm phòng mới
                   </SelectItem>
                 </SelectContent>
               </Select>
@@ -146,10 +149,10 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
 
             {showCustomRoom && (
               <div className="grid gap-2">
-                <Label htmlFor="customRoom">New Room Name</Label>
+                <Label htmlFor="customRoom">Tên Phòng Mới</Label>
                 <Input
                   id="customRoom"
-                  placeholder="e.g., Garage"
+                  placeholder="e.g., Phòng ngủ"
                   value={customRoom}
                   onChange={(e) => {
                     setCustomRoom(e.target.value);
@@ -160,6 +163,17 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
                 />
               </div>
             )}
+
+            <div className="grid gap-2">
+              <Label htmlFor="note">Ghi Chú</Label>
+              <Input
+                id="note"
+                placeholder="Nhập ghi chú (tùy chọn)"
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+              />
+            </div>
           </div>
 
           <DialogFooter>
@@ -168,15 +182,16 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
               variant="outline"
               onClick={() => setOpen(false)}
               className="border-slate-600 text-slate-300 hover:bg-slate-700 hover:text-white hover:border-slate-500 transition-all duration-200"
+              disabled={loading}
             >
-              Cancel
+              Hủy
             </Button>
             <Button
               type="submit"
               className="bg-blue-600 hover:bg-blue-700 text-white transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-              disabled={!deviceName || !deviceRoom}
+              disabled={!deviceId || !deviceName || loading}
             >
-              Add Device
+              {loading ? 'Đang thêm...' : 'Thêm Thiết Bị'}
             </Button>
           </DialogFooter>
         </form>

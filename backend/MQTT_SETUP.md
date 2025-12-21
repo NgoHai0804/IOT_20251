@@ -51,20 +51,47 @@ Khi kết nối thành công, bạn sẽ thấy log:
 ```
 ✅ Connected to MQTT broker successfully
 📡 Subscribed to topics:
-   - iot/device/+/data (QoS 1)
-   - iot/device/+/status (QoS 1)
+   - iot/device/+/data (QoS 1) - Format cũ
+   - iot/device/+/status (QoS 1) - Format cũ
+   - device/+/sensor/+/data (QoS 1) - Format mới
+   - device/+/status (QoS 1) - Format mới
+```
+
+## Kiến trúc hệ thống
+
+```
+Frontend (Web/App)
+    |
+    |  HTTPS (REST / WebSocket)
+    v
+Backend / API Server
+    |
+    |  MQTT (Command)
+    v
+IoT Device (ESP32)
+    |
+    |  MQTT (Status)
+    v
+Backend
 ```
 
 ## MQTT Topics
 
-Backend sẽ lắng nghe các topics sau:
+### Topics Backend Subscribe (Nhận từ thiết bị):
 
-- `iot/device/{device_id}/data` - Nhận dữ liệu sensor
-- `iot/device/{device_id}/status` - Nhận trạng thái thiết bị
+- `iot/device/{device_id}/data` - Nhận dữ liệu sensor (format cũ)
+- `iot/device/{device_id}/status` - Nhận trạng thái thiết bị (format cũ)
+- `device/{device_id}/sensor/{sensor_id}/data` - Nhận dữ liệu sensor (format mới)
+- `device/{device_id}/status` - Nhận trạng thái thiết bị (format mới)
+
+### Topics Backend Publish (Gửi đến thiết bị):
+
+- `device/{device_id}/command` - Gửi lệnh điều khiển đến thiết bị
 
 ## Format Message
 
-### Sensor Data:
+### Sensor Data (từ thiết bị):
+**Format cũ** (`iot/device/{device_id}/data`):
 ```json
 {
   "sensor_id": "sensor_001",
@@ -74,10 +101,36 @@ Backend sẽ lắng nghe các topics sau:
 }
 ```
 
-### Device Status:
+**Format mới** (`device/{device_id}/sensor/{sensor_id}/data`):
 ```json
 {
-  "status": "online"
+  "value": 25.5,
+  "unit": "°C"
+}
+```
+
+### Device Status (từ thiết bị):
+```json
+{
+  "status": "online",
+  "battery": 75,
+  "cloud_status": "on"
+}
+```
+
+### Command (gửi đến thiết bị):
+```json
+{
+  "action": "set_cloud_status",
+  "cloud_status": "on"
+}
+```
+
+Hoặc các command khác:
+```json
+{
+  "action": "turn_on",
+  "params": {}
 }
 ```
 

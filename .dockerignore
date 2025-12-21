@@ -1,0 +1,70 @@
+# Git
+.git
+.gitignore
+.github
+
+# Environment files
+.env
+.env.local
+.env.*.local
+.env.example
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Dependencies
+node_modules
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# Build outputs
+dist
+build
+coverage
+.cache
+.vite
+.nodemon
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Documentation
+*.md
+!README.md
+
+# Test files
+*.test.js
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.tsx
+
+# Device simulator (không cần trong Docker)
+device/
+
+# Frontend build artifacts (sẽ được build trong Docker)
+frontend/dist
+frontend/node_modules
+
+# Backend artifacts
+backend/__pycache__
+backend/**/__pycache__
+backend/.pytest_cache
+backend/.coverage
+

@@ -1,11 +1,13 @@
-import { useMemo } from 'react';
+import { useMemo, useState, useEffect } from 'react';
 import { SensorCard } from '@/components/SensorCard';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Home } from 'lucide-react';
-import type { DashboardProps, Sensor } from '@/types';
+import { roomDevicesCache } from '@/utils/roomDevicesCache';
+import type { DashboardProps, Sensor, Room, Device } from '@/types';
 
 interface RoomData {
-  room: string;
+  room: Room;
+  roomName: string;
   sensors: Sensor[];
   deviceCount: number;
   avgTemperature?: number;
@@ -18,106 +20,176 @@ export function Dashboard({
   devices,
   rooms,
 }: DashboardProps) {
+  // Map roomId -> deviceIds (query từ API)
+  const [roomDevicesMap, setRoomDevicesMap] = useState<Map<string, string[]>>(new Map());
+  
+  // Fetch devices cho mỗi room từ cache (tránh duplicate calls)
+  useEffect(() => {
+    const fetchRoomDevices = async () => {
+      if (!Array.isArray(rooms) || rooms.length === 0) return;
+      
+      const newMap = new Map<string, string[]>();
+      
+      // Sử dụng cache để tránh duplicate calls
+      for (const room of rooms) {
+        if (typeof room === 'string') continue;
+        const roomId = room._id;
+        
+        try {
+          // Sử dụng cache thay vì gọi API trực tiếp
+          const roomDevices = await roomDevicesCache.getDevices(roomId);
+          const deviceIds = roomDevices.map((d: Device) => d._id || d.id).filter(Boolean);
+          newMap.set(roomId, deviceIds);
+        } catch (error) {
+          console.error(`Error fetching devices for room ${roomId}:`, error);
+          newMap.set(roomId, []);
+        }
+      }
+      
+      setRoomDevicesMap(newMap);
+    };
+    
+    fetchRoomDevices();
+  }, [rooms]);
+  
   // Group sensors and devices by room
   const roomData = useMemo(() => {
     const roomMap = new Map<string, RoomData>();
 
-    // Initialize rooms
-    rooms.forEach(room => {
-      roomMap.set(room, {
-        room,
-        sensors: [],
-        deviceCount: 0,
-      });
-    });
-
-    // Add sensors to rooms
-    sensors.forEach(sensor => {
-      const room = sensor.room;
-      if (!roomMap.has(room)) {
-        roomMap.set(room, {
-          room,
+    // Initialize rooms - rooms is now an array of Room objects
+    if (Array.isArray(rooms)) {
+      rooms.forEach((room: Room | string) => {
+        // Handle both Room object and string (for backward compatibility)
+        const roomObj = typeof room === 'string' 
+          ? { _id: room, name: room, description: '' } as Room
+          : room;
+        const roomName = typeof room === 'string' ? room : room.name;
+        const roomId = typeof room === 'string' ? room : room._id;
+        
+        // Lấy deviceIds từ roomDevicesMap
+        const deviceIds = roomDevicesMap.get(roomId) || [];
+        
+        roomMap.set(roomId, {
+          room: roomObj,
+          roomName,
           sensors: [],
-          deviceCount: 0,
+          deviceCount: deviceIds.length,
         });
-      }
-      roomMap.get(room)!.sensors.push(sensor);
-    });
+      });
+    }
 
-    // Count devices per room
-    devices.forEach(device => {
-      const room = device.room;
-      if (roomMap.has(room)) {
-        roomMap.get(room)!.deviceCount++;
+    // Tìm room chứa device từ roomDevicesMap
+    sensors.forEach(sensor => {
+      // Find device that contains this sensor
+      const device = devices.find((d: Device) => d._id === sensor.device_id);
+      if (device) {
+        const deviceId = device._id || device.id;
+        
+        // Tìm room chứa device này từ roomDevicesMap
+        for (const [roomId, deviceIds] of roomDevicesMap.entries()) {
+          if (deviceIds.includes(deviceId)) {
+            const foundRoom = Array.isArray(rooms) ? rooms.find((r: Room | string) => {
+              if (typeof r === 'string') return r === roomId;
+              return r._id === roomId;
+            }) : null;
+            
+            if (foundRoom) {
+              const roomObj = typeof foundRoom === 'string' 
+                ? { _id: foundRoom, name: foundRoom, description: '' } as Room
+                : foundRoom;
+              const roomName = typeof foundRoom === 'string' ? foundRoom : foundRoom.name;
+              
+              if (!roomMap.has(roomId)) {
+                roomMap.set(roomId, {
+                  room: roomObj,
+                  roomName,
+                  sensors: [],
+                  deviceCount: deviceIds.length,
+                });
+              }
+              
+              // Add room name to sensor for display
+              const roomEntry = roomMap.get(roomId);
+              if (roomEntry) {
+                const sensorWithRoom = {
+                  ...sensor,
+                  room: roomEntry.roomName,  // Add room name for SensorCard
+                };
+                roomEntry.sensors.push(sensorWithRoom);
+              }
+            }
+            break; // Device chỉ thuộc 1 room
+          }
+        }
       }
     });
 
     // Calculate averages
-    roomMap.forEach((data, room) => {
+    roomMap.forEach((data, roomId) => {
       const tempSensors = data.sensors.filter(s => s.type === 'temperature');
       const humiditySensors = data.sensors.filter(s => s.type === 'humidity');
       const energySensors = data.sensors.filter(s => s.type === 'energy');
 
       if (tempSensors.length > 0) {
-        data.avgTemperature = tempSensors.reduce((sum, s) => sum + s.value, 0) / tempSensors.length;
+        data.avgTemperature = tempSensors.reduce((sum, s) => sum + (s.value || 0), 0) / tempSensors.length;
       }
       if (humiditySensors.length > 0) {
-        data.avgHumidity = humiditySensors.reduce((sum, s) => sum + s.value, 0) / humiditySensors.length;
+        data.avgHumidity = humiditySensors.reduce((sum, s) => sum + (s.value || 0), 0) / humiditySensors.length;
       }
       if (energySensors.length > 0) {
-        data.totalEnergy = energySensors.reduce((sum, s) => sum + s.value, 0);
+        data.totalEnergy = energySensors.reduce((sum, s) => sum + (s.value || 0), 0);
       }
     });
 
     return Array.from(roomMap.values());
-  }, [sensors, devices, rooms]);
+  }, [sensors, devices, rooms, roomDevicesMap]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Header */}
       <div>
-        <h2 className="text-white text-2xl font-bold mb-2">Tổng Quan Theo Phòng</h2>
-        <p className="text-slate-400 text-sm">Khái quát và tổng hợp dữ liệu sensor theo từng phòng</p>
+        <h2 className="text-white text-3xl font-bold mb-3 tracking-tight">Tổng Quan Theo Phòng</h2>
+        <p className="text-cyan-200/70 text-base">Khái quát và tổng hợp dữ liệu sensor theo từng phòng</p>
       </div>
 
       {/* Room Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
         {roomData.map((roomData) => (
-          <Card key={roomData.room} className="bg-slate-800/50 border-slate-700 backdrop-blur-sm">
-            <CardHeader className="pb-3">
+          <Card key={roomData.room._id} className="bg-slate-800/60 border-slate-700/80 backdrop-blur-xl hover:bg-slate-800/80 transition-all duration-300 shadow-lg hover:shadow-xl hover:scale-[1.02]">
+            <CardHeader className="pb-4">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 bg-blue-600/20 rounded-lg flex items-center justify-center">
-                  <Home className="w-5 h-5 text-blue-400" />
+                <div className="w-12 h-12 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 rounded-xl flex items-center justify-center border border-cyan-500/30">
+                  <Home className="w-6 h-6 text-cyan-400" />
                 </div>
-                <CardTitle className="text-white">{roomData.room}</CardTitle>
+                <CardTitle className="text-white text-lg font-bold">{roomData.roomName}</CardTitle>
               </div>
             </CardHeader>
             <CardContent>
-              <div className="space-y-3">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Thiết bị</span>
-                  <span className="text-white font-semibold">{roomData.deviceCount}</span>
+              <div className="space-y-3.5">
+                <div className="flex justify-between items-center p-2 rounded-lg bg-slate-900/40">
+                  <span className="text-cyan-200/70 text-sm font-medium">Thiết bị</span>
+                  <span className="text-white font-bold text-base">{roomData.deviceCount}</span>
                 </div>
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 text-sm">Sensor</span>
-                  <span className="text-white font-semibold">{roomData.sensors.length}</span>
+                <div className="flex justify-between items-center p-2 rounded-lg bg-slate-900/40">
+                  <span className="text-cyan-200/70 text-sm font-medium">Sensor</span>
+                  <span className="text-white font-bold text-base">{roomData.sensors.length}</span>
                 </div>
                 {roomData.avgTemperature !== undefined && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400 text-sm">Nhiệt độ TB</span>
-                    <span className="text-white font-semibold">{roomData.avgTemperature.toFixed(1)}°C</span>
+                  <div className="flex justify-between items-center p-2 rounded-lg bg-gradient-to-r from-orange-500/10 to-red-500/10 border border-orange-500/20">
+                    <span className="text-orange-200/80 text-sm font-medium">Nhiệt độ TB</span>
+                    <span className="text-orange-300 font-bold text-base">{roomData.avgTemperature.toFixed(1)}°C</span>
                   </div>
                 )}
                 {roomData.avgHumidity !== undefined && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400 text-sm">Độ ẩm TB</span>
-                    <span className="text-white font-semibold">{roomData.avgHumidity.toFixed(1)}%</span>
+                  <div className="flex justify-between items-center p-2 rounded-lg bg-gradient-to-r from-blue-500/10 to-cyan-500/10 border border-blue-500/20">
+                    <span className="text-blue-200/80 text-sm font-medium">Độ ẩm TB</span>
+                    <span className="text-blue-300 font-bold text-base">{roomData.avgHumidity.toFixed(1)}%</span>
                   </div>
                 )}
                 {roomData.totalEnergy !== undefined && (
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400 text-sm">Năng lượng</span>
-                    <span className="text-white font-semibold">{roomData.totalEnergy.toFixed(1)} kWh</span>
+                  <div className="flex justify-between items-center p-2 rounded-lg bg-gradient-to-r from-green-500/10 to-emerald-500/10 border border-green-500/20">
+                    <span className="text-green-200/80 text-sm font-medium">Năng lượng</span>
+                    <span className="text-green-300 font-bold text-base">{roomData.totalEnergy.toFixed(1)} kWh</span>
                   </div>
                 )}
               </div>
@@ -126,31 +198,6 @@ export function Dashboard({
         ))}
       </div>
 
-      {/* Sensors by Room */}
-      {roomData.map((roomData) => (
-        <div key={roomData.room}>
-          <div className="flex items-center justify-between mb-4">
-            <div className="flex items-center gap-3">
-              <Home className="w-5 h-5 text-blue-400" />
-              <h3 className="text-white text-xl font-semibold">{roomData.room}</h3>
-              <span className="text-slate-400 text-sm">
-                ({roomData.sensors.length} sensor{roomData.sensors.length !== 1 ? 's' : ''})
-              </span>
-            </div>
-          </div>
-          {roomData.sensors.length === 0 ? (
-            <div className="text-center py-8 text-slate-400 bg-slate-800/30 rounded-lg border border-slate-700">
-              Chưa có sensor trong phòng này
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 mb-6">
-              {roomData.sensors.map((sensor) => (
-                <SensorCard key={sensor.id} {...sensor} />
-              ))}
-            </div>
-          )}
-        </div>
-      ))}
 
     </div>
   );

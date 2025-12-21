@@ -27,12 +27,17 @@ export function RoomPanel({
   onEditRoom,
   onDeleteRoom,
 }: RoomPanelProps) {
-  // Group devices by room
+  // Group devices by room (cấu trúc mới: từ room.device_ids)
+  // Note: RoomPanel này có vẻ không được sử dụng nữa, nhưng vẫn cập nhật để tương thích
   const devicesByRoom = devices.reduce((acc, device) => {
-    if (!acc[device.room]) {
-      acc[device.room] = [];
+    // Tìm room chứa device này từ room.device_ids
+    const deviceId = device._id || device.id;
+    const roomName = device.room || 'Chưa có phòng'; // Fallback nếu không tìm thấy
+    
+    if (!acc[roomName]) {
+      acc[roomName] = [];
     }
-    acc[device.room].push(device);
+    acc[roomName].push(device);
     return acc;
   }, {} as Record<string, Device[]>);
 

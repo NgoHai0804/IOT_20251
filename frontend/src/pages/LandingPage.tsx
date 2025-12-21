@@ -1,10 +1,73 @@
+import { useState } from 'react';
 import { motion } from 'motion/react';
-import { Link } from 'react-router-dom';
-import { Home, Shield, Zap, Smartphone, TrendingUp, Users, ArrowRight, CheckCircle } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { Home, Shield, Zap, Smartphone, TrendingUp, Users, CheckCircle, User, Lock, Mail, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { authAPI } from '@/services/api';
+import { toast } from 'sonner';
 
 export function LandingPage() {
+  const navigate = useNavigate();
+  const [showRegister, setShowRegister] = useState(false);
+  const [registerData, setRegisterData] = useState({
+    fullName: '',
+    email: '',
+    password: '',
+    confirmPassword: '',
+    phone: ''
+  });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleRegister = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+
+    if (!registerData.fullName || !registerData.email || !registerData.password) {
+      setError('Vui lòng điền đầy đủ thông tin bắt buộc');
+      return;
+    }
+
+    if (registerData.password.length < 8) {
+      setError('Mật khẩu phải có ít nhất 8 ký tự');
+      return;
+    }
+
+    if (registerData.password !== registerData.confirmPassword) {
+      setError('Mật khẩu xác nhận không khớp');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await authAPI.register(
+        registerData.fullName,
+        registerData.email,
+        registerData.password,
+        registerData.phone
+      );
+      toast.success('Đăng ký thành công! Vui lòng đăng nhập.');
+      setShowRegister(false);
+      setRegisterData({
+        fullName: '',
+        email: '',
+        password: '',
+        confirmPassword: '',
+        phone: ''
+      });
+      navigate('/login');
+    } catch (err: any) {
+      const errorMessage = err.message || 'Đăng ký thất bại. Vui lòng thử lại.';
+      setError(errorMessage);
+      toast.error(errorMessage);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const features = [
     {
       icon: Home,
@@ -87,15 +150,22 @@ export function LandingPage() {
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5 }}
+                className="flex gap-3"
               >
                 <Link to="/login">
                   <Button
                     variant="outline"
                     className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10 hover:border-blue-500/50 transition-all duration-200"
                   >
-                    Login
+                    Đăng Nhập
                   </Button>
                 </Link>
+                <Button
+                  onClick={() => setShowRegister(true)}
+                  className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white transition-all duration-200"
+                >
+                  Tạo Tài Khoản
+                </Button>
               </motion.div>
             </div>
           </header>
@@ -141,23 +211,14 @@ export function LandingPage() {
                 initial={{ opacity: 0, y: 30 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.6, delay: 0.3 }}
-                className="flex flex-col sm:flex-row gap-4 justify-center"
+                className="flex justify-center"
               >
-                <Link to="/dashboard">
-                  <Button
-                    size="lg"
-                    className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-blue-500/70 transition-all duration-200 group"
-                  >
-                    Get Started
-                    <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-                  </Button>
-                </Link>
                 <Button
-                  variant="outline"
+                  onClick={() => setShowRegister(true)}
                   size="lg"
-                  className="border-slate-600 text-slate-300 hover:bg-slate-800 hover:text-white transition-all duration-200"
+                  className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white shadow-lg shadow-blue-500/50 hover:shadow-blue-500/70 transition-all duration-200"
                 >
-                  Watch Demo
+                  Tạo Tài Khoản Ngay
                 </Button>
               </motion.div>
             </div>
@@ -297,6 +358,181 @@ export function LandingPage() {
           <p>&copy; 2025 SmartHome Management System. All rights reserved.</p>
         </div>
       </footer>
+
+      {/* Register Dialog */}
+      {showRegister && (
+        <div 
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setShowRegister(false);
+              setError('');
+              setRegisterData({
+                fullName: '',
+                email: '',
+                password: '',
+                confirmPassword: '',
+                phone: ''
+              });
+            }
+          }}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.9 }}
+            className="bg-slate-800 border border-slate-700 rounded-2xl p-6 md:p-8 w-full max-w-md max-h-[90vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-white text-2xl font-bold">Tạo Tài Khoản</h2>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setShowRegister(false);
+                  setError('');
+                  setRegisterData({
+                    fullName: '',
+                    email: '',
+                    password: '',
+                    confirmPassword: '',
+                    phone: ''
+                  });
+                }}
+                className="text-slate-400 hover:text-white"
+              >
+                ✕
+              </Button>
+            </div>
+
+            <form onSubmit={handleRegister} className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="fullName" className="text-slate-300">
+                  Họ và Tên <span className="text-red-400">*</span>
+                </Label>
+                <div className="relative">
+                  <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="fullName"
+                    type="text"
+                    placeholder="Nhập họ và tên"
+                    value={registerData.fullName}
+                    onChange={(e) => setRegisterData({ ...registerData, fullName: e.target.value })}
+                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="email" className="text-slate-300">
+                  Email <span className="text-red-400">*</span>
+                </Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="Nhập email"
+                    value={registerData.email}
+                    onChange={(e) => setRegisterData({ ...registerData, email: e.target.value })}
+                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="phone" className="text-slate-300">
+                  Số Điện Thoại
+                </Label>
+                <div className="relative">
+                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="phone"
+                    type="tel"
+                    placeholder="Nhập số điện thoại (tùy chọn)"
+                    value={registerData.phone}
+                    onChange={(e) => setRegisterData({ ...registerData, phone: e.target.value })}
+                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="password" className="text-slate-300">
+                  Mật Khẩu <span className="text-red-400">*</span>
+                </Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="password"
+                    type="password"
+                    placeholder="Nhập mật khẩu (tối thiểu 8 ký tự)"
+                    value={registerData.password}
+                    onChange={(e) => setRegisterData({ ...registerData, password: e.target.value })}
+                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword" className="text-slate-300">
+                  Xác Nhận Mật Khẩu <span className="text-red-400">*</span>
+                </Label>
+                <div className="relative">
+                  <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <Input
+                    id="confirmPassword"
+                    type="password"
+                    placeholder="Nhập lại mật khẩu"
+                    value={registerData.confirmPassword}
+                    onChange={(e) => setRegisterData({ ...registerData, confirmPassword: e.target.value })}
+                    className="pl-10 bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
+                    disabled={loading}
+                    required
+                  />
+                </div>
+              </div>
+
+              {error && (
+                <motion.p
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  className="text-red-400 text-sm"
+                >
+                  {error}
+                </motion.p>
+              )}
+
+              <Button
+                type="submit"
+                className="w-full bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white"
+                disabled={loading}
+              >
+                {loading ? 'Đang tạo tài khoản...' : 'Tạo Tài Khoản'}
+              </Button>
+
+              <p className="text-center text-slate-400 text-sm">
+                Đã có tài khoản?{' '}
+                <Link
+                  to="/login"
+                  className="text-blue-400 hover:text-blue-300 underline"
+                  onClick={() => setShowRegister(false)}
+                >
+                  Đăng nhập ngay
+                </Link>
+              </p>
+            </form>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

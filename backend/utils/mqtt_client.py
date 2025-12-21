@@ -6,8 +6,14 @@ Kết nối đến HiveMQ Cloud broker để nhận dữ liệu từ thiết b�
 
 MQTT Topics:
 -----------
-- iot/device/{device_id}/data   - Nhận dữ liệu sensor từ thiết bị
-- iot/device/{device_id}/status  - Nhận trạng thái thiết bị
+Subscribed (nhận từ thiết bị):
+- iot/device/{device_id}/data   - Nhận dữ liệu sensor từ thiết bị (format cũ)
+- iot/device/{device_id}/status  - Nhận trạng thái thiết bị (format cũ)
+- device/{device_id}/sensor/{sensor_id}/data - Nhận dữ liệu sensor từ thiết bị (format mới)
+- device/{device_id}/status - Nhận trạng thái thiết bị (format mới)
+
+Published (gửi đến thiết bị):
+- device/{device_id}/command - Gửi lệnh điều khiển đến thiết bị
 
 Message Format:
 --------------
@@ -29,9 +35,23 @@ Message Format:
      ]
    }
 
-2. Device Status (iot/device/{device_id}/status):
+2. Device Status (iot/device/{device_id}/status hoặc device/{device_id}/status):
    {
-     "status": "online"  // hoặc "offline"
+     "status": "online",  // hoặc "offline"
+     "battery": 75,  // (tùy chọn) Mức pin
+     "cloud_status": "on"  // (tùy chọn) Trạng thái cloud
+   }
+
+3. Command (device/{device_id}/command) - Gửi từ backend đến thiết bị:
+   {
+     "action": "set_cloud_status",
+     "cloud_status": "on"  // hoặc "off"
+   }
+   
+   Hoặc các command khác:
+   {
+     "action": "turn_on",
+     "params": {}
    }
 
 Configuration:
@@ -52,30 +72,36 @@ import time
 import traceback
 from datetime import datetime
 from typing import Callable, Optional
-from utils.database import sensor_data_collection, devices_collection, sensors_collection
+from utils.database import sensor_data_collection, devices_collection, sensors_collection, actuators_collection, rooms_collection, notifications_collection, user_room_devices_collection
+from models.device_models import create_device_dict
+from models.sensor_models import create_sensor_dict
+from models.actuator_models import create_actuator_dict
 from models.data_models import create_sensor_data_dict
 from dotenv import load_dotenv
 
-# Load environment variables
+# Tải biến môi trường
 load_dotenv()
 
-# Configure logging
+# Cấu hình logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# HiveMQ Cloud Configuration
+# Cấu hình HiveMQ Cloud
 MQTT_BROKER = os.getenv("MQTT_BROKER", "707d6798baa54e22a0d6a43694d39e47.s1.eu.hivemq.cloud")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))  # SSL port
-MQTT_PORT_WS = int(os.getenv("MQTT_PORT_WS", "8884"))  # WebSocket port
-MQTT_USERNAME = os.getenv("MQTT_USERNAME", None)  # Set if authentication is required
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", None)  # Set if authentication is required
+MQTT_PORT = int(os.getenv("MQTT_PORT", "8883"))  # Cổng SSL
+MQTT_PORT_WS = int(os.getenv("MQTT_PORT_WS", "8884"))  # Cổng WebSocket
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", None)  # Đặt nếu cần xác thực
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", None)  # Đặt nếu cần xác thực
 
 # MQTT Topics - Hỗ trợ cả format cũ và format mới từ thiết bị IoT
 # Format cũ: iot/device/{device_id}/data, iot/device/{device_id}/status
 # Format mới: device/{device_id}/sensor/{sensor_id}/data, device/{device_id}/status
+# Format mới chuẩn: device/{device_id}/data (gửi sensors và actuators)
+DEVICE_REGISTER_TOPIC = "device/register"  # Pattern: device/register (đăng ký thiết bị)
 DEVICE_DATA_TOPIC_OLD = "iot/device/+/data"  # Pattern: iot/device/{device_id}/data
 DEVICE_STATUS_TOPIC_OLD = "iot/device/+/status"  # Pattern: iot/device/{device_id}/status
 DEVICE_DATA_TOPIC = "device/+/sensor/+/data"  # Pattern: device/{device_id}/sensor/{sensor_id}/data
+DEVICE_DATA_TOPIC_NEW = "device/+/data"  # Pattern: device/{device_id}/data (format mới chuẩn)
 DEVICE_STATUS_TOPIC = "device/+/status"  # Pattern: device/{device_id}/status
 
 
@@ -88,25 +114,31 @@ class MQTTClient:
         """Callback khi kết nối MQTT broker (tương thích với cả v3.1.1 và v5)"""
         if rc == 0:
             self.is_connected = True
-            logger.info("✅ Connected to MQTT broker successfully")
+            logger.info("Đã kết nối đến MQTT broker thành công")
             
-            # Subscribe to topics (cả format cũ và mới)
+            # Đăng ký các topics (cả format cũ và mới)
+            result_register = client.subscribe(DEVICE_REGISTER_TOPIC, qos=1)
             result_data_old = client.subscribe(DEVICE_DATA_TOPIC_OLD, qos=1)
             result_status_old = client.subscribe(DEVICE_STATUS_TOPIC_OLD, qos=1)
             result_data = client.subscribe(DEVICE_DATA_TOPIC, qos=1)
+            result_data_new = client.subscribe(DEVICE_DATA_TOPIC_NEW, qos=1)
             result_status = client.subscribe(DEVICE_STATUS_TOPIC, qos=1)
             
-            if (result_data[0] == mqtt.MQTT_ERR_SUCCESS and 
+            if (result_register[0] == mqtt.MQTT_ERR_SUCCESS and
+                result_data[0] == mqtt.MQTT_ERR_SUCCESS and 
                 result_status[0] == mqtt.MQTT_ERR_SUCCESS and
                 result_data_old[0] == mqtt.MQTT_ERR_SUCCESS and
-                result_status_old[0] == mqtt.MQTT_ERR_SUCCESS):
-                logger.info(f"📡 Subscribed to topics:")
+                result_status_old[0] == mqtt.MQTT_ERR_SUCCESS and
+                result_data_new[0] == mqtt.MQTT_ERR_SUCCESS):
+                logger.info(f"Đã đăng ký các topics:")
+                logger.info(f"   - {DEVICE_REGISTER_TOPIC} (QoS 1) - Đăng ký thiết bị")
                 logger.info(f"   - {DEVICE_DATA_TOPIC_OLD} (QoS 1) - Format cũ")
                 logger.info(f"   - {DEVICE_STATUS_TOPIC_OLD} (QoS 1) - Format cũ")
                 logger.info(f"   - {DEVICE_DATA_TOPIC} (QoS 1) - Format mới")
+                logger.info(f"   - {DEVICE_DATA_TOPIC_NEW} (QoS 1) - Format mới chuẩn")
                 logger.info(f"   - {DEVICE_STATUS_TOPIC} (QoS 1) - Format mới")
             else:
-                logger.warning(f"⚠️ Some subscriptions may have failed")
+                logger.warning(f"Một số đăng ký có thể đã thất bại")
         else:
             error_messages = {
                 1: "Incorrect protocol version",
@@ -115,13 +147,13 @@ class MQTTClient:
                 4: "Bad username or password",
                 5: "Not authorized - Check username/password or permissions"
             }
-            error_msg = error_messages.get(rc, f"Unknown error (code: {rc})")
-            logger.error(f"❌ Failed to connect to MQTT broker. Return code: {rc}")
-            logger.error(f"❌ Error: {error_msg}")
+            error_msg = error_messages.get(rc, f"Lỗi không xác định (mã: {rc})")
+            logger.error(f"Kết nối đến MQTT broker thất bại. Mã trả về: {rc}")
+            logger.error(f"Lỗi: {error_msg}")
             
             if rc == 4 or rc == 5:
-                logger.error("💡 HiveMQ Cloud yêu cầu username và password hợp lệ!")
-                logger.error("💡 Vui lòng kiểm tra:")
+                logger.error("HiveMQ Cloud yêu cầu username và password hợp lệ!")
+                logger.error("Vui lòng kiểm tra:")
                 logger.error("   1. Username và password trong .env hoặc mqtt_client.py")
                 logger.error("   2. Credentials từ HiveMQ Cloud Console")
                 logger.error("   3. URL: https://console.hivemq.cloud/")
@@ -132,9 +164,9 @@ class MQTTClient:
         """Callback khi ngắt kết nối MQTT broker (tương thích với cả v3.1.1 và v5)"""
         self.is_connected = False
         if rc != 0:
-            logger.warning(f"⚠️ Unexpected disconnection from MQTT broker. Return code: {rc}")
+            logger.warning(f"Ngắt kết nối MQTT broker không mong muốn. Mã trả về: {rc}")
         else:
-            logger.warning("⚠️ Disconnected from MQTT broker")
+            logger.warning("Đã ngắt kết nối MQTT broker")
     
     def on_message(self, client, userdata, msg):
         """Callback khi nhận được message từ MQTT broker"""
@@ -142,10 +174,10 @@ class MQTTClient:
             topic = msg.topic
             payload = msg.payload.decode('utf-8')
             
-            logger.info(f"📨 Received message on topic: {topic}")
-            logger.debug(f"Message payload: {payload}")
+            logger.info(f"Đã nhận message trên topic: {topic}")
+            logger.debug(f"Nội dung message: {payload}")
             
-            # Parse topic để lấy device_id và sensor_id
+            # Phân tích topic để lấy device_id và sensor_id
             topic_parts = topic.split('/')
             
             # Format mới: device/{device_id}/sensor/{sensor_id}/data
@@ -168,27 +200,36 @@ class MQTTClient:
             elif len(topic_parts) >= 4 and topic_parts[0] == "iot" and topic_parts[1] == "device" and topic_parts[3] == "status":
                 device_id = topic_parts[2]
                 self.handle_device_status(device_id, payload)
+            
+            # Format mới chuẩn: device/{device_id}/data (gửi sensors và actuators)
+            elif len(topic_parts) >= 3 and topic_parts[0] == "device" and topic_parts[2] == "data":
+                device_id = topic_parts[1]
+                self.handle_device_data_new_format(device_id, payload)
+            
+            # Device register: device/register
+            elif len(topic_parts) >= 2 and topic_parts[0] == "device" and topic_parts[1] == "register":
+                self.handle_device_register(payload)
             else:
-                logger.warning(f"⚠️ Unknown topic format: {topic}")
+                logger.warning(f"Định dạng topic không xác định: {topic}")
                     
         except Exception as e:
-            logger.error(f"❌ Error processing MQTT message: {str(e)}")
+            logger.error(f"Lỗi xử lý MQTT message: {str(e)}")
     
     def handle_sensor_data_new_format(self, device_id: str, sensor_id: str, payload: str):
         """Xử lý dữ liệu sensor từ thiết bị IoT (format mới: device/{device_id}/sensor/{sensor_id}/data)"""
         try:
-            # Parse JSON payload
+            # Phân tích JSON payload
             data = json.loads(payload)
             
-            # Kiểm tra device có tồn tại không
-            device = devices_collection.find_one({"device_id": device_id})
+            # Kiểm tra device có tồn tại không (dùng _id thay vì device_id)
+            device = devices_collection.find_one({"_id": device_id})
             if not device:
-                logger.warning(f"⚠️ Device {device_id} not found in database")
+                logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
                 return
             
             # Cập nhật trạng thái device thành online
             devices_collection.update_one(
-                {"device_id": device_id},
+                {"_id": device_id},
                 {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
             )
             
@@ -203,28 +244,28 @@ class MQTTClient:
             }
             
             self.save_sensor_data(device_id, sensor_data)
-            logger.info(f"✅ Processed sensor data for device: {device_id}, sensor: {sensor_id}")
+            logger.info(f"Đã xử lý dữ liệu sensor cho thiết bị: {device_id}, sensor: {sensor_id}")
             
         except json.JSONDecodeError:
-            logger.error(f"❌ Invalid JSON payload: {payload}")
+            logger.error(f"JSON payload không hợp lệ: {payload}")
         except Exception as e:
-            logger.error(f"❌ Error handling sensor data: {str(e)}")
+            logger.error(f"Lỗi xử lý dữ liệu sensor: {str(e)}")
     
     def handle_sensor_data(self, device_id: str, payload: str):
         """Xử lý dữ liệu sensor từ thiết bị IoT (format cũ: iot/device/{device_id}/data)"""
         try:
-            # Parse JSON payload
+            # Phân tích JSON payload
             data = json.loads(payload)
             
-            # Kiểm tra device có tồn tại không
-            device = devices_collection.find_one({"device_id": device_id})
+            # Kiểm tra device có tồn tại không (dùng _id thay vì device_id)
+            device = devices_collection.find_one({"_id": device_id})
             if not device:
-                logger.warning(f"⚠️ Device {device_id} not found in database")
+                logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
                 return
             
             # Cập nhật trạng thái device thành online
             devices_collection.update_one(
-                {"device_id": device_id},
+                {"_id": device_id},
                 {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
             )
             
@@ -242,12 +283,12 @@ class MQTTClient:
                 # Một sensor trong message
                 self.save_sensor_data(device_id, data)
                 
-            logger.info(f"✅ Processed sensor data for device: {device_id}")
+            logger.info(f"Đã xử lý dữ liệu sensor cho thiết bị: {device_id}")
             
         except json.JSONDecodeError:
-            logger.error(f"❌ Invalid JSON payload: {payload}")
+            logger.error(f"JSON payload không hợp lệ: {payload}")
         except Exception as e:
-            logger.error(f"❌ Error handling sensor data: {str(e)}")
+            logger.error(f"Lỗi xử lý dữ liệu sensor: {str(e)}")
     
     def infer_sensor_type_from_unit(self, unit: str) -> str:
         """Suy luận sensor type từ unit"""
@@ -273,39 +314,247 @@ class MQTTClient:
             sensor_type = sensor_data.get("type", sensor_data.get("sensor_type", ""))
             
             if not sensor_id or value is None:
-                logger.warning(f"⚠️ Missing sensor_id or value in data: {sensor_data}")
+                logger.warning(f"Thiếu sensor_id hoặc value trong dữ liệu: {sensor_data}")
                 return
             
-            # Kiểm tra sensor có tồn tại không (optional)
-            sensor = sensors_collection.find_one({"sensor_id": sensor_id, "device_id": device_id})
+            # Kiểm tra sensor có tồn tại không (tùy chọn) - dùng _id thay vì sensor_id
+            sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
             if not sensor:
-                logger.warning(f"⚠️ Sensor {sensor_id} not found, creating new sensor entry")
+                logger.warning(f"Sensor {sensor_id} không tìm thấy, đang tạo sensor mới")
                 # Có thể tự động tạo sensor nếu chưa có
                 from models.sensor_models import create_sensor_dict
                 new_sensor = create_sensor_dict(
-                    name=sensor_data.get("name", f"Sensor {sensor_id}"),
-                    sensor_type=sensor_type,
                     device_id=device_id,
-                    note=sensor_data.get("note", "")
+                    sensor_type=sensor_type,
+                    name=sensor_data.get("name", f"Sensor {sensor_id}"),
+                    unit=sensor_data.get("unit", ""),
+                    pin=sensor_data.get("pin", 0),
+                    enabled=True,
+                    auto_set_threshold=True  # Tự động set ngưỡng mặc định
                 )
-                new_sensor["sensor_id"] = sensor_id  # Sử dụng sensor_id từ device
+                new_sensor["_id"] = sensor_id  # Sử dụng sensor_id từ device
                 sensors_collection.insert_one(new_sensor)
+                logger.info(f"Đã tạo sensor: {sensor_id} với ngưỡng mặc định")
+            else:
+                # Cập nhật ngưỡng mặc định nếu sensor đã tồn tại nhưng chưa có ngưỡng
+                from models.sensor_models import get_default_thresholds
+                needs_update = False
+                update_data = {}
+                
+                if "min_threshold" not in sensor and "max_threshold" not in sensor:
+                    default_min, default_max = get_default_thresholds(sensor_type)
+                    if default_min is not None:
+                        update_data["min_threshold"] = default_min
+                        needs_update = True
+                    if default_max is not None:
+                        update_data["max_threshold"] = default_max
+                        needs_update = True
+                    
+                    if needs_update:
+                        update_data["updated_at"] = datetime.utcnow()
+                        sensors_collection.update_one(
+                            {"_id": sensor_id, "device_id": device_id},
+                            {"$set": update_data}
+                        )
+                        logger.info(f"Đã cập nhật sensor {sensor_id} với ngưỡng mặc định: min={update_data.get('min_threshold')}, max={update_data.get('max_threshold')}")
+            
+            # Kiểm tra ngưỡng và tạo notification nếu vượt quá
+            sensor_value = float(value)
+            min_threshold = sensor.get("min_threshold")
+            max_threshold = sensor.get("max_threshold")
+            
+            # Kiểm tra vượt ngưỡng
+            is_over_threshold = False
+            threshold_message = ""
+            
+            if min_threshold is not None and sensor_value < min_threshold:
+                is_over_threshold = True
+                threshold_message = f"Giá trị {sensor_value:.1f}{sensor.get('unit', '')} thấp hơn ngưỡng dưới {min_threshold}{sensor.get('unit', '')}"
+            elif max_threshold is not None and sensor_value > max_threshold:
+                is_over_threshold = True
+                threshold_message = f"Giá trị {sensor_value:.1f}{sensor.get('unit', '')} vượt quá ngưỡng trên {max_threshold}{sensor.get('unit', '')}"
+            
+            # Tạo notification cho tất cả users quản lý device này (chỉ tạo nếu chưa có notification gần đây)
+            if is_over_threshold:
+                from models.notification_models import create_notification_dict
+                from datetime import timedelta
+                
+                # Lấy tất cả users quản lý device này
+                user_links = list(user_room_devices_collection.find({"device_id": device_id}))
+                user_ids = list(set([link["user_id"] for link in user_links]))
+                
+                sensor_name = sensor.get("name", f"Sensor {sensor_id}")
+                notification_message = f"{sensor_name}: {threshold_message}"
+                
+                # Thời gian tối thiểu giữa các notification (5 phút)
+                notification_cooldown_minutes = 5
+                cooldown_time = datetime.utcnow() - timedelta(minutes=notification_cooldown_minutes)
+                
+                for user_id in user_ids:
+                    # Kiểm tra xem đã có notification chưa đọc cho sensor này trong khoảng thời gian gần đây chưa
+                    existing_notification = notifications_collection.find_one({
+                        "user_id": user_id,
+                        "sensor_id": sensor_id,
+                        "read": False,
+                        "type": "warning",
+                        "created_at": {"$gte": cooldown_time}
+                    })
+                    
+                    if not existing_notification:
+                        # Chưa có notification gần đây, tạo mới
+                        notification = create_notification_dict(
+                            user_id=user_id,
+                            sensor_id=sensor_id,
+                            type_="warning",
+                            message=notification_message,
+                            note=f"Device: {device_id}",
+                            read=False
+                        )
+                        notifications_collection.insert_one(notification)
+                        logger.warning(f"Đã tạo cảnh báo ngưỡng cho user {user_id}: {notification_message}")
+                    else:
+                        # Đã có notification gần đây, bỏ qua để tránh spam
+                        logger.debug(f"Bỏ qua notification cho user {user_id}, sensor {sensor_id} - đã có notification trong khoảng thời gian cooldown")
             
             # Tạo và lưu sensor data
+            from models.data_models import create_sensor_data_dict
             sensor_data_dict = create_sensor_data_dict(
                 sensor_id=sensor_id,
-                device_id=device_id,
-                value=float(value),
-                sensor_type=sensor_type,
-                extra=sensor_data.get("extra", {}),
-                note=sensor_data.get("note", "")
+                value=sensor_value,
+                device_id=device_id  # Thêm device_id để query dễ dàng
             )
             
             sensor_data_collection.insert_one(sensor_data_dict)
-            logger.debug(f"💾 Saved sensor data: {sensor_id} = {value}")
+            logger.debug(f"Đã lưu dữ liệu sensor: {sensor_id} = {value}")
             
         except Exception as e:
-            logger.error(f"❌ Error saving sensor data: {str(e)}")
+            logger.error(f"Lỗi lưu dữ liệu sensor: {str(e)}")
+    
+    def handle_device_data_new_format(self, device_id: str, payload: str):
+        """
+        Xử lý dữ liệu từ ESP32 (format mới chuẩn)
+        Format: {
+          "device_id": "device_01",
+          "sensors": [
+            { "sensor_id": "sensor_01", "value": 30 },
+            { "sensor_id": "sensor_02", "value": 65 }
+          ],
+          "actuators": [
+            { "actuator_id": "act_01", "state": true }
+          ]
+        }
+        """
+        try:
+            data = json.loads(payload)
+            
+            # Kiểm tra device có tồn tại không (dùng _id thay vì device_id)
+            device = devices_collection.find_one({"_id": device_id})
+            if not device:
+                logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
+                return
+            
+            # Cập nhật trạng thái device thành online
+            devices_collection.update_one(
+                {"_id": device_id},
+                {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
+            )
+            
+            # Xử lý sensors
+            if "sensors" in data and isinstance(data["sensors"], list):
+                for sensor_data_item in data["sensors"]:
+                    sensor_id = sensor_data_item.get("sensor_id")
+                    value = sensor_data_item.get("value")
+                    
+                    if sensor_id and value is not None:
+                        sensor_value = float(value)
+                        
+                        # Lấy thông tin sensor để kiểm tra ngưỡng
+                        sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
+                        
+                        # Kiểm tra ngưỡng và tạo notification nếu vượt quá
+                        if sensor:
+                            min_threshold = sensor.get("min_threshold")
+                            max_threshold = sensor.get("max_threshold")
+                            
+                            # Kiểm tra vượt ngưỡng
+                            is_over_threshold = False
+                            threshold_message = ""
+                            
+                            if min_threshold is not None and sensor_value < min_threshold:
+                                is_over_threshold = True
+                                threshold_message = f"Giá trị {sensor_value:.1f}{sensor.get('unit', '')} thấp hơn ngưỡng dưới {min_threshold}{sensor.get('unit', '')}"
+                            elif max_threshold is not None and sensor_value > max_threshold:
+                                is_over_threshold = True
+                                threshold_message = f"Giá trị {sensor_value:.1f}{sensor.get('unit', '')} vượt quá ngưỡng trên {max_threshold}{sensor.get('unit', '')}"
+                            
+                            # Tạo notification cho tất cả users quản lý device này (chỉ tạo nếu chưa có notification gần đây)
+                            if is_over_threshold:
+                                from models.notification_models import create_notification_dict
+                                from datetime import timedelta
+                                
+                                # Lấy tất cả users quản lý device này
+                                user_links = list(user_room_devices_collection.find({"device_id": device_id}))
+                                user_ids = list(set([link["user_id"] for link in user_links]))
+                                
+                                sensor_name = sensor.get("name", f"Sensor {sensor_id}")
+                                notification_message = f"{sensor_name}: {threshold_message}"
+                                
+                                # Thời gian tối thiểu giữa các notification (5 phút)
+                                notification_cooldown_minutes = 5
+                                cooldown_time = datetime.utcnow() - timedelta(minutes=notification_cooldown_minutes)
+                                
+                                for user_id in user_ids:
+                                    # Kiểm tra xem đã có notification chưa đọc cho sensor này trong khoảng thời gian gần đây chưa
+                                    existing_notification = notifications_collection.find_one({
+                                        "user_id": user_id,
+                                        "sensor_id": sensor_id,
+                                        "read": False,
+                                        "type": "warning",
+                                        "created_at": {"$gte": cooldown_time}
+                                    })
+                                    
+                                    if not existing_notification:
+                                        # Chưa có notification gần đây, tạo mới
+                                        notification = create_notification_dict(
+                                            user_id=user_id,
+                                            sensor_id=sensor_id,
+                                            type_="warning",
+                                            message=notification_message,
+                                            note=f"Device: {device_id}",
+                                            read=False
+                                        )
+                                        notifications_collection.insert_one(notification)
+                                        logger.warning(f"Đã tạo cảnh báo ngưỡng cho user {user_id}: {notification_message}")
+                                    else:
+                                        # Đã có notification gần đây, bỏ qua để tránh spam
+                                        logger.debug(f"Bỏ qua notification cho user {user_id}, sensor {sensor_id} - đã có notification trong khoảng thời gian cooldown")
+                        
+                        # Lưu sensor data
+                        from models.data_models import create_sensor_data_dict
+                        sensor_data_dict = create_sensor_data_dict(sensor_id, sensor_value, device_id=device_id)
+                        sensor_data_collection.insert_one(sensor_data_dict)
+                        logger.debug(f"Đã lưu dữ liệu sensor: {sensor_id} = {value}")
+            
+            # Xử lý actuators (cập nhật state)
+            if "actuators" in data and isinstance(data["actuators"], list):
+                for actuator_data in data["actuators"]:
+                    actuator_id = actuator_data.get("actuator_id")
+                    state = actuator_data.get("state")
+                    
+                    if actuator_id is not None and state is not None:
+                        # Cập nhật state của actuator
+                        actuators_collection.update_one(
+                            {"_id": actuator_id, "device_id": device_id},
+                            {"$set": {"state": bool(state), "updated_at": datetime.utcnow()}}
+                        )
+                        logger.debug(f"Đã cập nhật trạng thái actuator: {actuator_id} = {state}")
+            
+            logger.info(f"Đã xử lý dữ liệu thiết bị cho device: {device_id}")
+            
+        except json.JSONDecodeError:
+            logger.error(f"JSON payload không hợp lệ: {payload}")
+        except Exception as e:
+            logger.error(f"Lỗi xử lý dữ liệu thiết bị: {str(e)}")
     
     def handle_device_status(self, device_id: str, payload: str):
         """Xử lý trạng thái thiết bị"""
@@ -324,20 +573,20 @@ class MQTTClient:
             if "battery" in data:
                 update_data["battery"] = data["battery"]
             
-            # Cập nhật trạng thái device
+            # Cập nhật trạng thái device (dùng _id thay vì device_id)
             devices_collection.update_one(
-                {"device_id": device_id},
+                {"_id": device_id},
                 {"$set": update_data}
             )
             
-            logger.info(f"✅ Updated device {device_id} status to: {status}")
+            logger.info(f"Đã cập nhật trạng thái thiết bị {device_id} thành: {status}")
             if "battery" in data:
-                logger.info(f"   Battery level: {data['battery']}%")
+                logger.info(f"   Mức pin: {data['battery']}%")
             
         except json.JSONDecodeError:
-            logger.error(f"❌ Invalid JSON payload: {payload}")
+            logger.error(f"JSON payload không hợp lệ: {payload}")
         except Exception as e:
-            logger.error(f"❌ Error handling device status: {str(e)}")
+            logger.error(f"Lỗi xử lý trạng thái thiết bị: {str(e)}")
     
     def connect(self):
         """Kết nối đến MQTT broker"""
@@ -348,12 +597,12 @@ class MQTTClient:
                 protocol=mqtt.MQTTv311
             )
             
-            # Set callbacks
+            # Thiết lập callbacks
             self.client.on_connect = self.on_connect
             self.client.on_disconnect = self.on_disconnect
             self.client.on_message = self.on_message
             
-            # Set TLS/SSL (HiveMQ Cloud yêu cầu SSL)
+            # Thiết lập TLS/SSL (HiveMQ Cloud yêu cầu SSL)
             # Sử dụng tls_insecure_set(True) để không verify certificate (cho development)
             # Trong production nên verify certificate
             self.client.tls_set(
@@ -368,48 +617,48 @@ class MQTTClient:
             
             # HiveMQ Cloud YÊU CẦU username và password
             if not MQTT_USERNAME or not MQTT_PASSWORD:
-                logger.error("❌ MQTT_USERNAME và MQTT_PASSWORD là BẮT BUỘC cho HiveMQ Cloud!")
-                logger.error("📝 Vui lòng thêm vào file .env hoặc cập nhật trong mqtt_client.py")
-                logger.error("📝 Lấy thông tin từ: https://console.hivemq.cloud/")
-                logger.error("📝 Vào Cluster -> Access Management để tạo credentials")
+                logger.error("MQTT_USERNAME và MQTT_PASSWORD là BẮT BUỘC cho HiveMQ Cloud!")
+                logger.error("Vui lòng thêm vào file .env hoặc cập nhật trong mqtt_client.py")
+                logger.error("Lấy thông tin từ: https://console.hivemq.cloud/")
+                logger.error("Vào Cluster -> Access Management để tạo credentials")
                 self.is_connected = False
                 return
             
-            # Set username/password
+            # Thiết lập username/password
             self.client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-            logger.info(f"🔐 Using authentication: username={MQTT_USERNAME[:3]}***")
+            logger.info(f"Đang sử dụng xác thực: username={MQTT_USERNAME[:3]}***")
             
             # Kết nối
-            logger.info(f"🔌 Connecting to MQTT broker: {MQTT_BROKER}:{MQTT_PORT}")
-            logger.info(f"🔒 Using TLS/SSL on port {MQTT_PORT}")
+            logger.info(f"Đang kết nối đến MQTT broker: {MQTT_BROKER}:{MQTT_PORT}")
+            logger.info(f"Đang sử dụng TLS/SSL trên cổng {MQTT_PORT}")
             
             result = self.client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
             
             if result != mqtt.MQTT_ERR_SUCCESS:
-                logger.error(f"❌ Connection failed with code: {result}")
-                logger.error("💡 MQTT Error Codes:")
-                logger.error("   0 = Success")
-                logger.error("   1 = Incorrect protocol version")
-                logger.error("   2 = Invalid client identifier")
-                logger.error("   3 = Server unavailable")
-                logger.error("   4 = Bad username or password")
-                logger.error("   5 = Not authorized")
+                logger.error(f"Kết nối thất bại với mã: {result}")
+                logger.error("Mã lỗi MQTT:")
+                logger.error("   0 = Thành công")
+                logger.error("   1 = Phiên bản protocol không đúng")
+                logger.error("   2 = Client identifier không hợp lệ")
+                logger.error("   3 = Server không khả dụng")
+                logger.error("   4 = Username hoặc password sai")
+                logger.error("   5 = Không được phép")
                 self.is_connected = False
                 return
             
-            # Start loop
+            # Bắt đầu loop
             self.client.loop_start()
             
             # Đợi một chút để kết nối
             time.sleep(1)
             
             if not self.is_connected:
-                logger.warning("⚠️ Connection may have failed. Check logs above for details.")
+                logger.warning("Kết nối có thể đã thất bại. Kiểm tra log ở trên để biết chi tiết.")
             
         except Exception as e:
-            logger.error(f"❌ Error connecting to MQTT broker: {str(e)}")
-            logger.error(f"❌ Error type: {type(e).__name__}")
-            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            logger.error(f"Lỗi kết nối đến MQTT broker: {str(e)}")
+            logger.error(f"Loại lỗi: {type(e).__name__}")
+            logger.error(f"Traceback: {traceback.format_exc()}")
             self.is_connected = False
     
     def disconnect(self):
@@ -417,25 +666,196 @@ class MQTTClient:
         if self.client:
             self.client.loop_stop()
             self.client.disconnect()
-            logger.info("🔌 Disconnected from MQTT broker")
+            logger.info("Đã ngắt kết nối MQTT broker")
     
     def publish(self, topic: str, payload: dict, qos: int = 0):
         """Gửi message đến MQTT broker"""
         if not self.is_connected:
-            logger.warning("⚠️ MQTT client not connected")
+            logger.warning("MQTT client chưa kết nối")
             return False
         
         try:
             result = self.client.publish(topic, json.dumps(payload), qos=qos)
             if result.rc == mqtt.MQTT_ERR_SUCCESS:
-                logger.info(f"📤 Published message to topic: {topic}")
+                logger.info(f"Đã gửi message đến topic: {topic}")
                 return True
             else:
-                logger.error(f"❌ Failed to publish message: {result.rc}")
+                logger.error(f"Gửi message thất bại: {result.rc}")
                 return False
         except Exception as e:
-            logger.error(f"❌ Error publishing message: {str(e)}")
+            logger.error(f"Lỗi gửi message: {str(e)}")
             return False
+    
+    def handle_device_register(self, payload: str):
+        """
+        Xử lý đăng ký thiết bị từ ESP32
+        Topic: device/register
+        
+        Format:
+        {
+          "device_id": "device_01",  // hoặc để trống để server tự tạo
+          "name": "ESP32 Phòng Khách",
+          "type": "esp32",
+          "room_name": "Phòng khách",  // tên phòng (sẽ tạo nếu chưa có)
+          "ip": "192.168.1.20",
+          "sensors": [
+            {"sensor_id": "sensor_01", "type": "temperature", "name": "Nhiệt độ", "unit": "°C", "pin": 4},
+            {"sensor_id": "sensor_02", "type": "humidity", "name": "Độ ẩm", "unit": "%", "pin": 5}
+          ],
+          "actuators": [
+            {"actuator_id": "act_01", "type": "relay", "name": "Đèn trần", "pin": 23},
+            {"actuator_id": "act_02", "type": "relay", "name": "Quạt", "pin": 22}
+          ]
+        }
+        """
+        try:
+            data = json.loads(payload)
+            logger.info(f"Yêu cầu đăng ký thiết bị: {data}")
+            
+            # KHÔNG tự động tạo phòng - device mặc định không thuộc phòng nào
+            # Device sẽ được thêm vào phòng sau khi user quản lý
+            
+            # Kiểm tra device đã tồn tại chưa
+            device_id = data.get("device_id")
+            if device_id:
+                existing_device = devices_collection.find_one({"_id": device_id})
+                if existing_device:
+                    logger.info(f"Thiết bị {device_id} đã tồn tại, đang cập nhật...")
+                    # Cập nhật thông tin device (KHÔNG cập nhật room_id)
+                    update_data = {
+                        "name": data.get("name", existing_device.get("name")),
+                        "type": data.get("type", existing_device.get("type")),
+                        "ip": data.get("ip", existing_device.get("ip", "")),
+                        "status": "online",
+                        "updated_at": datetime.utcnow()
+                    }
+                    devices_collection.update_one({"_id": device_id}, {"$set": update_data})
+                else:
+                    # Tạo device mới với device_id được chỉ định (KHÔNG có room_id và user_id)
+                    device = create_device_dict(
+                        name=data.get("name", "Unnamed Device"),
+                        room_id=None,  # Không thuộc phòng nào
+                        device_type=data.get("type", "esp32"),
+                        ip=data.get("ip", ""),
+                        status="online",
+                        enabled=True
+                    )
+                    device["_id"] = device_id  # Sử dụng device_id được chỉ định
+                    devices_collection.insert_one(device)
+                    logger.info(f"Đã tạo thiết bị mới: {device_id} (không gán phòng, không có user_id)")
+            else:
+                # Tạo device mới (server tự tạo device_id) - KHÔNG có room_id và user_id
+                device = create_device_dict(
+                    name=data.get("name", "Unnamed Device"),
+                    room_id=None,  # Không thuộc phòng nào
+                    device_type=data.get("type", "esp32"),
+                    ip=data.get("ip", ""),
+                    status="online",
+                    enabled=True
+                )
+                devices_collection.insert_one(device)
+                device_id = device["_id"]
+                logger.info(f"Đã tạo thiết bị mới: {device_id} (không gán phòng, không có user_id)")
+            
+            # Xử lý sensors
+            sensors_data = data.get("sensors", [])
+            for sensor_info in sensors_data:
+                sensor_id = sensor_info.get("sensor_id")
+                if not sensor_id:
+                    continue
+                
+                existing_sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
+                if not existing_sensor:
+                    sensor = create_sensor_dict(
+                        device_id=device_id,
+                        sensor_type=sensor_info.get("type", "temperature"),
+                        name=sensor_info.get("name", f"Sensor {sensor_id}"),
+                        unit=sensor_info.get("unit", ""),
+                        pin=sensor_info.get("pin", 0),
+                        enabled=True,
+                        auto_set_threshold=True  # Tự động set ngưỡng mặc định
+                    )
+                    sensor["_id"] = sensor_id
+                    sensors_collection.insert_one(sensor)
+                    logger.info(f"Đã tạo sensor: {sensor_id} với ngưỡng mặc định")
+                else:
+                    # Cập nhật ngưỡng mặc định nếu sensor đã tồn tại nhưng chưa có ngưỡng
+                    from models.sensor_models import get_default_thresholds
+                    sensor_type = existing_sensor.get("type", sensor_info.get("type", "temperature"))
+                    needs_update = False
+                    update_data = {}
+                    
+                    if "min_threshold" not in existing_sensor and "max_threshold" not in existing_sensor:
+                        default_min, default_max = get_default_thresholds(sensor_type)
+                        if default_min is not None:
+                            update_data["min_threshold"] = default_min
+                            needs_update = True
+                        if default_max is not None:
+                            update_data["max_threshold"] = default_max
+                            needs_update = True
+                        
+                        if needs_update:
+                            update_data["updated_at"] = datetime.utcnow()
+                            sensors_collection.update_one(
+                                {"_id": sensor_id, "device_id": device_id},
+                                {"$set": update_data}
+                            )
+                            logger.info(f"Đã cập nhật sensor {sensor_id} với ngưỡng mặc định: min={update_data.get('min_threshold')}, max={update_data.get('max_threshold')}")
+            
+            # Xử lý actuators
+            actuators_data = data.get("actuators", [])
+            for actuator_info in actuators_data:
+                actuator_id = actuator_info.get("actuator_id")
+                if not actuator_id:
+                    continue
+                
+                existing_actuator = actuators_collection.find_one({"_id": actuator_id, "device_id": device_id})
+                if not existing_actuator:
+                    actuator = create_actuator_dict(
+                        device_id=device_id,
+                        actuator_type=actuator_info.get("type", "relay"),
+                        name=actuator_info.get("name", f"Actuator {actuator_id}"),
+                        pin=actuator_info.get("pin", 0),
+                        state=False,
+                        enabled=True
+                    )
+                    actuator["_id"] = actuator_id
+                    actuators_collection.insert_one(actuator)
+                    logger.info(f"Đã tạo actuator: {actuator_id}")
+            
+            # Gửi response về device
+            response_topic = f"device/{device_id}/register/response"
+            response = {
+                "status": "success",
+                "device_id": device_id,
+                "message": "Device registered successfully"
+            }
+            self.publish(response_topic, response, qos=1)
+            logger.info(f"Thiết bị {device_id} đã đăng ký thành công, đã gửi response đến {response_topic}")
+            
+        except json.JSONDecodeError:
+            logger.error(f"JSON payload không hợp lệ trong register: {payload}")
+        except Exception as e:
+            logger.error(f"Lỗi xử lý đăng ký thiết bị: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+    
+    def publish_command(self, device_id: str, command: dict, qos: int = 1):
+        """
+        Gửi command đến thiết bị IoT qua MQTT
+        Topic: device/{device_id}/command
+        
+        Args:
+            device_id: ID của thiết bị IoT
+            command: Dictionary chứa command (ví dụ: {"action": "set_cloud_status", "cloud_status": "on"})
+            qos: Quality of Service (mặc định: 1 - đảm bảo message được gửi ít nhất 1 lần)
+        
+        Returns:
+            bool: True nếu gửi thành công, False nếu thất bại
+        """
+        topic = f"device/{device_id}/command"
+        logger.info(f"Đang gửi command đến thiết bị {device_id}: {command}")
+        return self.publish(topic, command, qos=qos)
 
 
 # Global MQTT client instance

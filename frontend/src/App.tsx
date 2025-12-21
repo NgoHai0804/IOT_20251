@@ -83,17 +83,13 @@ function App() {
                 <Dashboard
                   sensors={appData.sensors}
                   devices={appData.devices}
-                  onDeviceToggle={appData.handleDeviceToggle}
-                  onBrightnessChange={appData.handleBrightnessChange}
-                  onSpeedChange={appData.handleSpeedChange}
-                  onTemperatureChange={appData.handleTemperatureChange}
                   selectedDeviceId={appData.selectedDeviceId}
-                  selectedRoom={appData.selectedRoom}
+                  selectedRoom={appData.selectedRoomId}
                   onDeviceClick={appData.setSelectedDeviceId}
-                  onRoomClick={appData.setSelectedRoom}
+                  onRoomClick={(roomId) => appData.setSelectedRoomId(roomId)}
                   onClearSelection={() => {
                     appData.setSelectedDeviceId(null);
-                    appData.setSelectedRoom(null);
+                    appData.setSelectedRoomId(null);
                   }}
                   rooms={appData.rooms}
                 />
@@ -114,7 +110,12 @@ function App() {
                 <Devices
                   devices={appData.devices}
                   rooms={appData.rooms}
-                  onDeviceToggle={appData.handleDeviceToggle}
+                  onDeviceToggle={(deviceId) => {
+                    const device = appData.devices.find(d => d._id === deviceId || d.id === deviceId);
+                    if (device) {
+                      appData.handleDevicePowerToggle(deviceId, !device.enabled);
+                    }
+                  }}
                   onBrightnessChange={appData.handleBrightnessChange}
                   onSpeedChange={appData.handleSpeedChange}
                   onTemperatureChange={appData.handleTemperatureChange}
@@ -124,12 +125,15 @@ function App() {
                   onDeviceClick={appData.setSelectedDeviceId}
                   onClearSelection={() => {
                     appData.setSelectedDeviceId(null);
-                    appData.setSelectedRoom(null);
+                    appData.setSelectedRoomId(null);
                   }}
                   sensors={appData.sensors}
+                  actuators={appData.actuators}
                   temperatureData={appData.temperatureData}
                   energyData={appData.energyData}
                   humidityData={appData.humidityData}
+                  onSensorEnableToggle={appData.handleSensorEnableToggle}
+                  onActuatorControl={appData.handleActuatorControl}
                 />
               </SharedLayout>
             </ProtectedRoute>
@@ -147,17 +151,24 @@ function App() {
               >
                 <Rooms 
                   devices={appData.devices}
-                  selectedRoom={appData.selectedRoom}
-                  onRoomClick={appData.setSelectedRoom}
+                  rooms={appData.rooms}
+                  selectedRoom={appData.selectedRoomId}
+                  onRoomClick={(roomId) => appData.setSelectedRoomId(typeof roomId === 'string' ? roomId : roomId._id)}
                   onClearSelection={() => {
                     appData.setSelectedDeviceId(null);
-                    appData.setSelectedRoom(null);
+                    appData.setSelectedRoomId(null);
                   }}
                   sensors={appData.sensors}
-                  temperatureData={appData.temperatureData}
-                  energyData={appData.energyData}
-                  humidityData={appData.humidityData}
-                  onUpdateRoom={appData.handleUpdateDevice}
+                  actuators={appData.actuators}
+                  onUpdateRoom={appData.refreshData}
+                  onDeviceToggle={(deviceId) => {
+                    const device = appData.devices.find(d => (d._id || d.id) === deviceId);
+                    if (device) {
+                      appData.handleDevicePowerToggle(deviceId, !device.enabled);
+                    }
+                  }}
+                  onActuatorControl={appData.handleActuatorControl}
+                  onRoomControl={appData.handleRoomControl}
                 />
               </SharedLayout>
             </ProtectedRoute>

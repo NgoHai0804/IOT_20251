@@ -1,6 +1,5 @@
-// API Service for backend communication
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+// Dịch vụ API để giao tiếp với backend
+import { API_BASE_URL } from '@/config/env';
 
 interface ApiResponse<T> {
   status: boolean;
@@ -8,22 +7,22 @@ interface ApiResponse<T> {
   data: T | null;
 }
 
-// Get auth token from localStorage
+// Lấy token xác thực từ localStorage
 function getAuthToken(): string | null {
   return localStorage.getItem('auth_token');
 }
 
-// Set auth token
+// Đặt token xác thực
 function setAuthToken(token: string): void {
   localStorage.setItem('auth_token', token);
 }
 
-// Clear auth token
+// Xóa token xác thực
 function clearAuthToken(): void {
   localStorage.removeItem('auth_token');
 }
 
-// API request helper
+// Hàm helper cho request API
 async function apiRequest<T>(
   endpoint: string,
   options: RequestInit = {}
@@ -64,15 +63,33 @@ async function apiRequest<T>(
     console.error('API request error:', error);
     
     if (error.name === 'TypeError' && error.message.includes('Failed to fetch')) {
-      throw new Error('Cannot connect to server. Please make sure the backend is running on ' + API_BASE_URL);
+      throw new Error(`Không thể kết nối đến server. Vui lòng đảm bảo backend đang chạy tại ${API_BASE_URL}`);
     }
     
     throw error;
   }
 }
 
-// Auth API
+// API xác thực
 export const authAPI = {
+  register: async (fullName: string, email: string, password: string, phone?: string): Promise<{ user: any }> => {
+    const response = await apiRequest<{ user: any }>('/users/register', {
+      method: 'POST',
+      body: JSON.stringify({ 
+        full_name: fullName,
+        email, 
+        password,
+        phone: phone || ''
+      }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Registration failed');
+  },
+  
   login: async (email: string, password: string): Promise<{ token: string; user: any }> => {
     const response = await apiRequest<{ token: string; user: any }>('/users/login', {
       method: 'POST',
@@ -98,7 +115,7 @@ export const authAPI = {
   getToken: getAuthToken,
 };
 
-// Device API
+// API thiết bị
 export const deviceAPI = {
   getAllDevices: async (): Promise<any[]> => {
     const response = await apiRequest<{ devices: any[] }>('/user-device/get-all-device');
@@ -123,17 +140,21 @@ export const deviceAPI = {
     throw new Error(response.message || 'Failed to get device info');
   },
   
-  addDevice: async (deviceSerial: string, password?: string): Promise<any> => {
+  addDevice: async (deviceId: string, deviceName: string, location: string, note?: string): Promise<any> => {
     /**
      * Thêm thiết bị cho người dùng
-     * - deviceSerial: ID vật lý của thiết bị (serial number)
-     * - password: Mật khẩu của thiết bị (nếu có)
+     * - deviceId: ID thiết bị
+     * - deviceName: Tên thiết bị
+     * - location: Phòng/vị trí thiết bị
+     * - note: Ghi chú (tùy chọn)
      */
     const response = await apiRequest<any>('/user-device/add', {
       method: 'POST',
       body: JSON.stringify({ 
-        device_serial: deviceSerial,
-        password: password || null
+        device_id: deviceId,
+        device_name: deviceName,
+        location: location,
+        note: note || null
       }),
     });
     
@@ -150,6 +171,7 @@ export const deviceAPI = {
     location?: string;
     note?: string;
     status?: string;
+    cloud_status?: string;
   }): Promise<any> => {
     /**
      * Cập nhật thông tin thiết bị
@@ -177,15 +199,83 @@ export const deviceAPI = {
   },
 };
 
-// Room API
+// API phòng
 export const roomAPI = {
+  // API mới
+  createRoom: async (name: string, description?: string): Promise<any> => {
+    const response = await apiRequest<any>('/rooms/', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        description: description || '',
+      }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to create room');
+  },
+
+  getAllRooms: async (includeData: boolean = false): Promise<any[]> => {
+    const endpoint = includeData ? '/rooms/?include_data=true' : '/rooms/';
+    const response = await apiRequest<{ rooms: any[] }>(endpoint);
+    
+    if (response.status && response.data) {
+      return response.data.rooms || [];
+    }
+    
+    return [];
+  },
+
+  getRoom: async (roomId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}`);
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to get room');
+  },
+
+  getRoomDetails: async (roomId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}/details`);
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to get room details');
+  },
+
+  // Lấy dữ liệu mới nhất cho một room cụ thể (khi click vào room)
+  refreshRoomData: async (roomId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}/details`);
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to refresh room data');
+  },
+
+  controlRoom: async (roomId: string, action: 'on' | 'off'): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ action }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to control room');
+  },
+
+  // API cũ (giữ lại để tương thích)
   updateRoomName: async (oldRoomName: string, newRoomName: string): Promise<any> => {
-    /**
-     * Cập nhật tên phòng
-     * - oldRoomName: Tên phòng cũ
-     * - newRoomName: Tên phòng mới
-     */
-    const response = await apiRequest<any>('/room/update-name', {
+    const response = await apiRequest<any>('/rooms/update-name', {
       method: 'POST',
       body: JSON.stringify({
         old_room_name: oldRoomName,
@@ -201,12 +291,7 @@ export const roomAPI = {
   },
 
   deleteRoom: async (roomName: string): Promise<any> => {
-    /**
-     * Xóa phòng
-     * - roomName: Tên phòng cần xóa
-     * Tất cả devices sẽ được chuyển sang phòng "Không xác định"
-     */
-    const response = await apiRequest<any>('/room/delete', {
+    const response = await apiRequest<any>('/rooms/delete', {
       method: 'POST',
       body: JSON.stringify({
         room_name: roomName,
@@ -219,9 +304,138 @@ export const roomAPI = {
     
     throw new Error(response.message || 'Failed to delete room');
   },
+
+  // Cấu trúc mới: Room chứa device_ids
+  addDeviceToRoom: async (roomId: string, deviceId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}/devices/${deviceId}`, {
+      method: 'POST',
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to add device to room');
+  },
+
+  removeDeviceFromRoom: async (roomId: string, deviceId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/rooms/${roomId}/devices/${deviceId}`, {
+      method: 'DELETE',
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to remove device from room');
+  },
 };
 
-// Sensor Data API
+// API thiết bị mới
+export const newDeviceAPI = {
+  controlDevicePower: async (deviceId: string, enabled: boolean): Promise<any> => {
+    const response = await apiRequest<any>(`/devices/${deviceId}/power`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to control device power');
+  },
+
+  getDevice: async (deviceId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/devices/${deviceId}`);
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to get device');
+  },
+
+  getDevicesByRoom: async (roomId: string): Promise<any[]> => {
+    const response = await apiRequest<{ devices: any[] }>(`/devices/room/${roomId}`);
+    
+    if (response.status && response.data) {
+      return response.data.devices || [];
+    }
+    
+    return [];
+  },
+};
+
+// API cảm biến mới
+export const newSensorAPI = {
+  controlSensorEnable: async (sensorId: string, enabled: boolean): Promise<any> => {
+    const response = await apiRequest<any>(`/sensors/${sensorId}/enable`, {
+      method: 'POST',
+      body: JSON.stringify({ enabled }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to control sensor');
+  },
+
+  getSensorsByDevice: async (deviceId: string): Promise<any[]> => {
+    const response = await apiRequest<{ sensors: any[] }>(`/sensors/device/${deviceId}`);
+    
+    if (response.status && response.data) {
+      return response.data.sensors || [];
+    }
+    
+    return [];
+  },
+
+  updateSensorThreshold: async (sensorId: string, minThreshold?: number | null, maxThreshold?: number | null): Promise<any> => {
+    const response = await apiRequest<any>(`/sensors/${sensorId}/threshold`, {
+      method: 'POST',
+      body: JSON.stringify({
+        min_threshold: minThreshold === null ? null : minThreshold,
+        max_threshold: maxThreshold === null ? null : maxThreshold,
+      }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to update sensor threshold');
+  },
+};
+
+// API điều khiển mới
+export const newActuatorAPI = {
+  controlActuator: async (actuatorId: string, state: boolean): Promise<any> => {
+    const response = await apiRequest<any>(`/actuators/${actuatorId}/control`, {
+      method: 'POST',
+      body: JSON.stringify({ state }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to control actuator');
+  },
+
+  getActuatorsByDevice: async (deviceId: string): Promise<any[]> => {
+    const response = await apiRequest<{ actuators: any[] }>(`/actuators/device/${deviceId}`);
+    
+    if (response.status && response.data) {
+      return response.data.actuators || [];
+    }
+    
+    return [];
+  },
+};
+
+// API dữ liệu cảm biến
 export const sensorDataAPI = {
   getSensorData: async (params?: {
     device_id?: string;
@@ -302,6 +516,7 @@ export const sensorDataAPI = {
 
   getSensorTrends: async (params?: {
     device_id?: string;
+    room?: string;
     hours?: number;
     limit_per_type?: number;
   }): Promise<{
@@ -312,6 +527,7 @@ export const sensorDataAPI = {
     const queryParams = new URLSearchParams();
     
     if (params?.device_id) queryParams.append('device_id', params.device_id);
+    if (params?.room) queryParams.append('room', params.room);
     if (params?.hours) queryParams.append('hours', params.hours.toString());
     if (params?.limit_per_type) queryParams.append('limit_per_type', params.limit_per_type.toString());
     
@@ -337,6 +553,53 @@ export const sensorDataAPI = {
       humidity: [],
       energy: [],
     };
+  },
+};
+
+// API thông báo
+export const notificationAPI = {
+  getNotifications: async (limit: number = 100, unreadOnly: boolean = false): Promise<any[]> => {
+    const response = await apiRequest<{ notifications: any[] }>(`/notifications?limit=${limit}&unread_only=${unreadOnly}`);
+    
+    if (response.status && response.data) {
+      return response.data.notifications || [];
+    }
+    
+    return [];
+  },
+
+  markAsRead: async (notificationId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/notifications/${notificationId}/read`, {
+      method: 'POST',
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to mark notification as read');
+  },
+
+  markAllAsRead: async (): Promise<any> => {
+    const response = await apiRequest<any>('/notifications/read-all', {
+      method: 'POST',
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to mark all notifications as read');
+  },
+
+  getUnreadCount: async (): Promise<number> => {
+    const response = await apiRequest<{ count: number }>('/notifications/unread-count');
+    
+    if (response.status && response.data) {
+      return response.data.count || 0;
+    }
+    
+    return 0;
   },
 };
 

@@ -8,7 +8,7 @@ import bcrypt
 
 
 # ==========================
-# Register
+# Đăng ký
 # ==========================
 def register_user(user_data):
     try:
@@ -32,7 +32,7 @@ def register_user(user_data):
                 }
             )
 
-        # Create user
+        # Tạo user
         hashed_pw = bcrypt.hashpw(
             user_data.password.encode(), bcrypt.gensalt()
         ).decode()
@@ -69,7 +69,7 @@ def register_user(user_data):
 
 
 # ==========================
-# Login --> JWT
+# Đăng nhập --> JWT
 # ==========================
 def login_user(user_data):
     try:
@@ -88,7 +88,7 @@ def login_user(user_data):
                 content={"status": False, "message": "Invalid email or password", "data": None}
             )
 
-        # Check password
+        # Kiểm tra password
         if not bcrypt.checkpw(
             user_data.password.encode("utf-8"),
             user["password_hash"].encode("utf-8")
@@ -129,7 +129,7 @@ def login_user(user_data):
 
 
 # ==========================
-# Info
+# Thông tin
 # ==========================
 def info_user(current_user):
     try:
@@ -181,7 +181,7 @@ def info_user(current_user):
 
 
 # ==========================
-# Logout
+# Đăng xuất
 # ==========================
 def logout_user(current_user=None):
     try:
@@ -206,7 +206,7 @@ def logout_user(current_user=None):
 
 
 # ==========================
-# Update info
+# Cập nhật thông tin
 # ==========================
 def change_user_info(payload, current_user):
     try:

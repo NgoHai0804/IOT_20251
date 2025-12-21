@@ -11,13 +11,17 @@ router = APIRouter(prefix="/user-device", tags=["UserDevice"])
 async def add_device_route(payload: AddDevice, current_user: dict = Depends(get_current_user)):
     """
     Thêm thiết bị cho người dùng
-    - device_serial: ID vật lý của thiết bị (serial number)
-    - password: Mật khẩu của thiết bị (nếu có)
+    - device_id: ID thiết bị
+    - device_name: Tên thiết bị
+    - location: Phòng/vị trí thiết bị
+    - note: Ghi chú (tùy chọn)
     """
     return user_device_controller.add_device(
         current_user,
-        payload.device_serial,  # Sử dụng device_serial thay vì device_id
-        payload.password
+        payload.device_id,
+        payload.device_name,
+        payload.location,
+        payload.note
     )
 
 @router.post("/get-device", response_model=ResponseSchema)
