@@ -1,0 +1,52 @@
+services:
+  - type: web
+    name: iot-smart-home
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    dockerCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      # Server Configuration
+      - key: BACKEND_HOST
+        value: 0.0.0.0
+      - key: BACKEND_PORT
+        sync: false
+        fromService:
+          type: web
+          name: iot-smart-home
+          property: port
+      
+      # CORS Configuration (cập nhật với domain Render của bạn)
+      - key: CORS_ORIGINS
+        value: https://your-render-app.onrender.com,http://localhost:5173
+      
+      # Database Configuration
+      - key: MONGO_URI
+        sync: false
+      - key: DB_NAME
+        value: iot_app
+      
+      # JWT Configuration
+      - key: SECRET_KEY
+        sync: false
+      - key: ALGORITHM
+        value: HS256
+      - key: ACCESS_TOKEN_EXPIRE_MINUTES
+        value: 1440
+      
+      # MQTT Configuration
+      - key: MQTT_BROKER
+        sync: false
+      - key: MQTT_PORT
+        value: 8883
+      - key: MQTT_PORT_WS
+        value: 8884
+      - key: MQTT_USERNAME
+        sync: false
+      - key: MQTT_PASSWORD
+        sync: false
+      
+      # Frontend API URL (cho build time - Render sẽ tự động set)
+      - key: VITE_API_BASE_URL
+        sync: false

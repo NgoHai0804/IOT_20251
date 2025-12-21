@@ -54,9 +54,9 @@ COPY --from=frontend-builder /app/frontend/dist ./static
 # Expose port
 EXPOSE 8000
 
-# Health check
+# Health check (sử dụng PORT từ environment hoặc mặc định 8000)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-  CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
+  CMD python -c "import os, urllib.request; port = os.getenv('PORT', '8000'); urllib.request.urlopen(f'http://localhost:{port}/health')" || exit 1
 
-# Run backend với uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run backend với uvicorn (hỗ trợ Render PORT)
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${PORT:-8000}"]

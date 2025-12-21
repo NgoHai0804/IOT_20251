@@ -1,5 +1,5 @@
 # app/utils/auth.py
-import jwt
+from jose import jwt, ExpiredSignatureError, JWTError
 from fastapi import Depends, HTTPException, Header, status
 from datetime import datetime, timedelta
 from utils.database import users_collection
@@ -37,13 +37,13 @@ def verify_token(token: str):
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         return payload.get("sub")  # Thường là email
-    except jwt.ExpiredSignatureError:
+    except ExpiredSignatureError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token expired",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    except jwt.InvalidTokenError:
+    except JWTError:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid token",
