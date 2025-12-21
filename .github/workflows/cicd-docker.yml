@@ -50,7 +50,7 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=${{ env.DOCKER_TAG_STAGING }},enable={{is_default_branch}}
 
-      # 5. Build và push Docker image
+      # 5. Build và push Docker image với cache tối ưu
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
@@ -59,8 +59,15 @@ jobs:
           push: ${{ github.event_name != 'pull_request' }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=registry,ref=${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG_STAGING }}
-          cache-to: type=inline
+          # Cache từ registry để tái sử dụng layers
+          cache-from: |
+            type=registry,ref=${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG_STAGING }}
+            type=gha
+          # Cache đến GitHub Actions cache (nhanh hơn registry cache)
+          cache-to: |
+            type=gha,mode=max
+            type=registry,ref=${{ env.DOCKER_IMAGE }}:${{ env.DOCKER_TAG_STAGING }},mode=max
           build-args: |
             VITE_API_BASE_URL=${{ secrets.VITE_API_BASE_URL || 'https://api.yourdomain.com' }}
-          platforms: linux/amd64,linux/arm64
+          # Chỉ build amd64 để tránh QEMU emulation chậm
+          platforms: linux/amd64

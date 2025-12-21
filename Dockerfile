@@ -1,17 +1,20 @@
+# syntax=docker/dockerfile:1.7
+
 # Multi-stage build cho IoT Backend + Frontend
 
 # ============================================
 # Stage 1: Build Frontend
 # ============================================
-FROM node:20-alpine AS frontend-builder
+FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
 # Copy package files
-COPY frontend/package*.json ./
+COPY frontend/package.json frontend/package-lock.json ./
 
-# Install dependencies (bao gồm devDependencies để build)
-RUN npm ci --include=dev
+# Install dependencies với cache mount (nhanh hơn 5-10 lần)
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci --include=dev
 
 # Copy source code
 COPY frontend/ ./
@@ -22,8 +25,6 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-http://localhost:8000}
 ENV NODE_ENV=production
 
 # Build frontend
-# Sử dụng build:docker script (bỏ qua TypeScript check để tránh lỗi build trong Docker)
-# Nếu muốn strict TypeScript check, dùng: RUN npm run build
 RUN npm run build:docker
 
 # ============================================
@@ -38,9 +39,11 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements và install Python dependencies
+# Copy requirements và install Python dependencies với cache mount
 COPY backend/requirements.txt ./
-RUN pip install --no-cache-dir -r requirements.txt
+
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
 COPY backend/ ./
@@ -51,7 +54,7 @@ COPY --from=frontend-builder /app/frontend/dist ./static
 # Expose port
 EXPOSE 8000
 
-# Health check (sử dụng curl thay vì requests để tránh cần thêm dependency)
+# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
   CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')" || exit 1
 
