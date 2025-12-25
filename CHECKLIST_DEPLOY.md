@@ -198,3 +198,4 @@ Checklist này đảm bảo mọi thứ đã được cấu hình đúng để b
 
 **Last Updated**: Sau khi fix lỗi email-validator
 **Status**: ✅ **SẴN SÀNG DEPLOY**
+
