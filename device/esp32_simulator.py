@@ -222,7 +222,7 @@ def send_sensor_data(client):
     topic = f"device/{DEVICE_ID}/data"
     client.publish(topic, json.dumps(payload), qos=1)
     
-    print(f"📤 Published to {topic}:")
+    print(f"Published to {topic}:")
     print(f"   Sensors: {len(payload['sensors'])}")
     print(f"   Actuators: {len(payload['actuators'])}")
     if payload['sensors']:
@@ -238,7 +238,7 @@ def send_device_status(client):
     
     topic = f"device/{DEVICE_ID}/status"
     client.publish(topic, json.dumps(payload), qos=1)
-    print(f"📤 Published status to {topic}")
+    print(f"Published status to {topic}")
 
 
 def turn_off_all_sensors():
@@ -246,7 +246,7 @@ def turn_off_all_sensors():
     global sensor_states
     for sensor_id in sensor_states:
         sensor_states[sensor_id] = False
-    print("   🔴 All sensors turned off")
+    print("   All sensors turned off")
 
 
 def turn_off_all_actuators():
@@ -254,23 +254,23 @@ def turn_off_all_actuators():
     global actuator_states
     for actuator_id in actuator_states:
         actuator_states[actuator_id] = False
-    print("   🔴 All actuators turned off")
+    print("   All actuators turned off")
 
 
 def print_status():
     """In trạng thái hiện tại"""
     print("\n" + "="*50)
-    print(f"📊 Device Status: {DEVICE_ID}")
+    print(f"Device Status: {DEVICE_ID}")
     print("="*50)
     print(f"Device Enabled: {device_enabled}")
     print("\nSensors:")
     for sensor_id, enabled in sensor_states.items():
         value = sensor_values.get(sensor_id, "N/A")
-        status = "🟢 ON" if enabled else "🔴 OFF"
+        status = " ON" if enabled else "OFF"
         print(f"  - {sensor_id}: {status} (value: {value})")
     print("\nActuators:")
     for actuator_id, state in actuator_states.items():
-        status = "🟢 ON" if state else "🔴 OFF"
+        status = " ON" if state else "OFF"
         print(f"  - {actuator_id}: {status}")
     print("="*50 + "\n")
 
@@ -336,7 +336,7 @@ def register_device(client):
 
 # ========== Main ==========
 def main():
-    print("🚀 ESP32 Device Simulator")
+    print("ESP32 Device Simulator")
     print(f"Device ID: {DEVICE_ID}")
     print(f"MQTT Broker: {MQTT_BROKER}:{MQTT_PORT}")
     print("-" * 50)

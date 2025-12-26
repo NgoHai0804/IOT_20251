@@ -7,7 +7,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-def get_notifications(user_id: str, limit: int = 100, unread_only: bool = False):
+def get_notifications(user_id: str, limit: int = 20, unread_only: bool = False):
     """
     Lấy danh sách notifications của user
     GET /notifications?limit=100&unread_only=false

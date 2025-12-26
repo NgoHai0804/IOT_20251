@@ -33,6 +33,7 @@ export function Login({ onLogin }: LoginProps) {
       const result = await authAPI.login(email, password);
       toast.success('Login successful!', { duration: 1000 });
       onLogin(result.user.full_name || result.user.email || email);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } catch (err: any) {
       const errorMessage = err.message || 'Login failed. Please check your credentials.';
       setError(errorMessage);
@@ -43,13 +44,13 @@ export function Login({ onLogin }: LoginProps) {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-linear-to-br from-slate-900 via-blue-900 to-slate-900 p-4">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.5 }}
       >
-        <Card className="w-full max-w-md bg-slate-800/80 border-slate-700/80 backdrop-blur-xl shadow-2xl">
+        <Card className="w-full min-w-[24rem] bg-slate-800/80 border-slate-700/80 backdrop-blur-xl shadow-2xl">
           <CardHeader className="space-y-5">
             <motion.div
               className="flex justify-center"
@@ -57,7 +58,7 @@ export function Login({ onLogin }: LoginProps) {
               animate={{ scale: 1 }}
               transition={{ delay: 0.2, type: 'spring', stiffness: 200 }}
             >
-              <div className="w-20 h-20 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-cyan-500/30">
+              <div className="w-20 h-20 bg-linear-to-br from-cyan-500 to-blue-600 rounded-2xl flex items-center justify-center shadow-xl shadow-cyan-500/30">
                 <Home className="w-10 h-10 text-white" />
               </div>
             </motion.div>
@@ -118,7 +119,7 @@ export function Login({ onLogin }: LoginProps) {
               
               <Button
                 type="submit"
-                className="w-full bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold shadow-lg shadow-cyan-500/30 h-11"
+                className="w-full bg-linear-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white font-bold shadow-lg shadow-cyan-500/30 h-11"
                 disabled={loading}
               >
                 {loading ? 'Đang đăng nhập...' : 'Đăng Nhập'}
