@@ -16,7 +16,7 @@ import { roomAPI } from '@/services/api';
 interface AddRoomDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSuccess: (roomName: string) => void;
+  onSuccess: (roomName: string, roomId?: string) => void;
   existingRooms: string[];
 }
 
@@ -42,10 +42,11 @@ export function AddRoomDialog({ open, onOpenChange, onSuccess, existingRooms }: 
       const trimmedRoomName = roomName.trim();
       
       // Gọi API để tạo room trên server
-      await roomAPI.createRoom(trimmedRoomName, '');
+      const createdRoom = await roomAPI.createRoom(trimmedRoomName, '');
       
       toast.success(`Đã thêm phòng "${trimmedRoomName}"`, { duration: 1000 });
-      onSuccess(trimmedRoomName);
+      // Truyền cả roomName và roomId (nếu có) cho onSuccess
+      onSuccess(trimmedRoomName, createdRoom?._id || createdRoom?.id);
       onOpenChange(false);
       setRoomName('');
     } catch (error: any) {

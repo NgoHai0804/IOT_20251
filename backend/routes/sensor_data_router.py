@@ -126,3 +126,33 @@ async def get_sensor_trends_route(
         limit_per_type=limit_per_type
     )
 
+
+@router.get("/temperature/table", response_model=ResponseSchema)
+async def get_temperature_statistics_table_route(
+    device_id: Optional[str] = Query(None, description="Filter by device ID (optional)"),
+    days: int = Query(1, ge=1, le=7, description="Number of days: 1, 3, or 7 (default: 1)"),
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Lấy dữ liệu nhiệt độ theo khoảng thời gian để hiển thị trong bảng thống kê
+    
+    - **device_id**: Lọc theo device ID (optional, nếu không có thì lấy tất cả devices của user)
+    - **days**: Số ngày (1, 3, hoặc 7 ngày, mặc định: 1)
+    
+    Trả về dữ liệu nhóm theo:
+    - 1 ngày: Nhóm theo giờ (format: "HH:00")
+    - 3, 7 ngày: Nhóm theo ngày (format: "DD/MM/YYYY")
+    
+    Mỗi record trong table_data chứa:
+    - time: ISO timestamp
+    - time_display: Thời gian hiển thị (HH:00 hoặc DD/MM/YYYY)
+    - min: Giá trị nhỏ nhất
+    - max: Giá trị lớn nhất
+    - avg: Giá trị trung bình
+    - count: Số lượng mẫu
+    """
+    return sensor_data_controller.get_temperature_statistics_table(
+        current_user,
+        device_id=device_id,
+        days=days
+    )

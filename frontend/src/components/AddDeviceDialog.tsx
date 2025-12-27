@@ -26,6 +26,7 @@ import type { AddDeviceDialogProps } from '@/types';
 export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
   const [open, setOpen] = useState(false);
   const [deviceId, setDeviceId] = useState('');
+  const [devicePassword, setDevicePassword] = useState('');
   const [deviceName, setDeviceName] = useState('');
   const [deviceRoom, setDeviceRoom] = useState('');
   const [note, setNote] = useState('');
@@ -45,11 +46,13 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
     try {
       // Nếu không chọn phòng, truyền empty string
       const location = deviceRoom && deviceRoom !== 'none' ? deviceRoom : '';
-      await deviceAPI.addDevice(deviceId, deviceName, location, note || undefined);
+      const password = devicePassword && devicePassword.trim() ? devicePassword : null;
+      await deviceAPI.addDevice(deviceId, password, deviceName, location, note || undefined);
       toast.success('Thêm thiết bị thành công', { duration: 1000 });
       
       // Reset form
       setDeviceId('');
+      setDevicePassword('');
       setDeviceName('');
       setDeviceRoom('');
       setNote('');
@@ -101,11 +104,23 @@ export function AddDeviceDialog({ onAddDevice, rooms }: AddDeviceDialogProps) {
               <Label htmlFor="deviceId">ID Thiết Bị <span className="text-red-400">*</span></Label>
               <Input
                 id="deviceId"
-                placeholder="Nhập ID thiết bị"
+                placeholder="Nhập ID của thiết bị"
                 value={deviceId}
                 onChange={(e) => setDeviceId(e.target.value)}
                 className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
                 required
+              />
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="devicePassword">Mật Khẩu Thiết Bị</Label>
+              <Input
+                id="devicePassword"
+                type="password"
+                placeholder="Để trống nếu thiết bị không có mật khẩu"
+                value={devicePassword}
+                onChange={(e) => setDevicePassword(e.target.value)}
+                className="bg-slate-700/50 border-slate-600 text-white placeholder:text-slate-400"
               />
             </div>
 

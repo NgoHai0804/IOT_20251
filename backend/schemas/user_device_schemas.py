@@ -42,12 +42,14 @@ class UpdateDevice(BaseModel):
 class AddDevice(BaseModel):
     """
     Schema để thêm thiết bị cho người dùng
-    - device_id: ID thiết bị (bắt buộc)
+    - device_id: ID của thiết bị (bắt buộc) - dùng để tìm thiết bị trong hệ thống
+    - device_password: Mật khẩu thiết bị (tùy chọn) - để trống nếu thiết bị không có mật khẩu
     - device_name: Tên thiết bị (bắt buộc)
     - location: Phòng/vị trí thiết bị (bắt buộc)
     - note: Ghi chú (tùy chọn)
     """
-    device_id: str = Field(..., description="Device ID - required")
+    device_id: str = Field(..., description="Device ID - required, dùng để tìm thiết bị trong hệ thống")
+    device_password: Optional[str] = Field(None, description="Device password - optional, leave empty if device has no password")
     device_name: str = Field(..., description="Device name - required")
     location: str = Field(..., description="Device location/room - required")
     note: Optional[str] = Field(None, description="Device note - optional")

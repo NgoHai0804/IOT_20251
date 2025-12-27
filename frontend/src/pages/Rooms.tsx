@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AddRoomDialog } from '@/components/AddRoomDialog';
 import { EditRoomDialog } from '@/components/EditRoomDialog';
@@ -35,50 +35,64 @@ export function Rooms({
   const [addingDevice, setAddingDevice] = useState(false);
   const [roomsWithData, setRoomsWithData] = useState<Room[]>([]);
   const [isLoadingRoomsData, setIsLoadingRoomsData] = useState(false);
+  const fetchingRoomRef = useRef<Set<string>>(new Set()); // Track rooms đang được fetch để tránh duplicate calls
+  const hasFetchedRoomsRef = useRef(false); // Track đã fetch rooms chưa
+  // Local state để track enabled state của devices cho optimistic update
+  const [localDeviceEnabled, setLocalDeviceEnabled] = useState<Map<string, boolean>>(new Map());
   
-  // Fetch rooms với đầy đủ dữ liệu khi ở trang /rooms
+  // LUÔN gọi API /rooms/ khi vào trang Rooms
   useEffect(() => {
-    const fetchRoomsWithData = async () => {
-      setIsLoadingRoomsData(true);
+    const fetchRoomsOnMount = async () => {
+      // Chỉ fetch một lần khi mount
+      if (hasFetchedRoomsRef.current) return;
+      hasFetchedRoomsRef.current = true;
+      
       try {
-        const roomsData = await roomAPI.getAllRooms(true); // includeData=true
-        setRoomsWithData(roomsData);
+        setIsLoadingRoomsData(true);
+        // Gọi API để lấy danh sách phòng
+        const roomsData = await roomAPI.getAllRooms();
         
-        // Cập nhật cache cho devices của từng room và dispatch events
-        roomsData.forEach((room: any) => {
-          if (room.devices && room.devices.length > 0) {
-            roomDevicesCache.setDevices(room._id, room.devices);
-            // Dispatch event để RoomCard biết đã có devices
-            window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
-              detail: { devices: room.devices } 
-            }));
-          }
-          
-          // Dispatch event để RoomCard biết đã có sensors từ API
-          if (room.sensors && Array.isArray(room.sensors) && room.sensors.length > 0) {
-            window.dispatchEvent(new CustomEvent(`room-sensors-updated-${room._id}`, { 
-              detail: { sensors: room.sensors } 
-            }));
-          }
-        });
+        // Set rooms cơ bản vào roomsWithData (chưa có devices, sensors, actuators)
+        setRoomsWithData(roomsData.map((room: any) => ({
+          ...room,
+          devices: [],
+          sensors: [],
+          actuators: []
+        })));
       } catch (error) {
-        console.error('Error fetching rooms with data:', error);
-        toast.error('Không thể tải dữ liệu phòng', { duration: 1000 });
+        console.error('Error fetching rooms on mount:', error);
+        toast.error('Không thể tải danh sách phòng', { duration: 1000 });
       } finally {
         setIsLoadingRoomsData(false);
       }
     };
     
-    // Fetch ngay lập tức
-    fetchRoomsWithData();
-    
-    // Fetch định kỳ mỗi 30 giây
-    const interval = setInterval(() => {
-      fetchRoomsWithData();
-    }, 30000);
-    
-    return () => clearInterval(interval);
-  }, []);
+    fetchRoomsOnMount();
+  }, []); // Chỉ chạy một lần khi mount
+  
+  // Khởi tạo roomsWithData từ props.rooms khi có dữ liệu
+  useEffect(() => {
+    if (roomsProp && roomsProp.length > 0) {
+      // Khởi tạo roomsWithData từ props (chưa có details)
+      setRoomsWithData(prevRooms => {
+        // Merge với prevRooms để giữ lại details của các room đã fetch
+        const existingRoomMap = new Map(prevRooms.map(r => [r._id, r]));
+        return roomsProp.map((room: any) => {
+          const existing = existingRoomMap.get(room._id);
+          // Nếu đã có details, giữ lại; nếu chưa có, set empty arrays
+          if (existing && existing.devices !== undefined) {
+            return existing;
+          }
+          return {
+            ...room,
+            devices: room.devices || [],
+            sensors: room.sensors || [],
+            actuators: room.actuators || []
+          };
+        });
+      });
+    }
+  }, [roomsProp]);
   
   // Get rooms from props hoặc từ roomsWithData (ưu tiên roomsWithData nếu có)
   const rooms: Room[] = useMemo(() => {
@@ -340,27 +354,35 @@ export function Rooms({
       
       toast.success('Đã thêm thiết bị vào phòng', { duration: 1000 });
       
-      // Refresh data - fetch lại rooms với data
-      const fetchRoomsWithData = async () => {
+      // Chỉ refresh room cụ thể thay vì fetch tất cả rooms
+      if (selectedRoom && !fetchingRoomRef.current.has(selectedRoom)) {
+        fetchingRoomRef.current.add(selectedRoom);
         try {
-          const roomsData = await roomAPI.getAllRooms(true);
-          setRoomsWithData(roomsData);
+          const roomData = await roomAPI.getRoomDetails(selectedRoom);
+          
+          // Đánh dấu room đã được fetch details
+          const roomDataWithFlag = { ...roomData, _fetchedDetails: true };
+          
+          // Cập nhật room trong roomsWithData
+          setRoomsWithData(prevRooms => {
+            return prevRooms.map(r => 
+              r._id === selectedRoom ? { ...r, ...roomDataWithFlag } : r
+            );
+          });
           
           // Cập nhật cache
-          roomsData.forEach((room: any) => {
-            if (room.devices && room.devices.length > 0) {
-              roomDevicesCache.setDevices(room._id, room.devices);
-              window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
-                detail: { devices: room.devices } 
-              }));
-            }
-          });
+          if (roomData.devices && roomData.devices.length > 0) {
+            roomDevicesCache.setDevices(selectedRoom, roomData.devices);
+            window.dispatchEvent(new CustomEvent(`room-devices-updated-${selectedRoom}`, { 
+              detail: { devices: roomData.devices } 
+            }));
+          }
         } catch (error) {
-          console.error('Error refreshing rooms data:', error);
+          console.error('Error refreshing room data:', error);
+        } finally {
+          fetchingRoomRef.current.delete(selectedRoom);
         }
-      };
-      
-      await fetchRoomsWithData();
+      }
       
       // Gọi onUpdateRoom nếu có
       if (onUpdateRoom) {
@@ -385,28 +407,8 @@ export function Rooms({
   };
 
   const handleRoomUpdateSuccess = async () => {
-    // Fetch lại rooms với data
-    const fetchRoomsWithData = async () => {
-      try {
-        const roomsData = await roomAPI.getAllRooms(true);
-        setRoomsWithData(roomsData);
-        
-        // Cập nhật cache
-        roomsData.forEach((room: any) => {
-          if (room.devices && room.devices.length > 0) {
-            roomDevicesCache.setDevices(room._id, room.devices);
-            window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
-              detail: { devices: room.devices } 
-            }));
-          }
-        });
-      } catch (error) {
-        console.error('Error refreshing rooms data:', error);
-      }
-    };
-    
-    await fetchRoomsWithData();
-    
+    // Không fetch rooms ở đây nữa vì useAppData đã fetch và sẽ cập nhật qua props
+    // Chỉ cập nhật local state từ props khi props thay đổi
     if (onUpdateRoom) {
       await onUpdateRoom();
     }
@@ -418,14 +420,123 @@ export function Rooms({
     }
   };
 
-  const handleAddRoomSuccess = (roomName: string) => {
-    handleRoomUpdateSuccess();
+  const handleAddRoomSuccess = async (roomName: string, roomId?: string) => {
+    // Gọi onUpdateRoom để refresh rooms list từ useAppData
+    if (onUpdateRoom) {
+      await onUpdateRoom();
+    }
+    
+    // Nếu có roomId từ response, sử dụng luôn; nếu không thì tìm từ roomsProp
+    let targetRoomId = roomId;
+    
+    if (!targetRoomId) {
+      // Fallback: tìm room mới trong roomsProp sau khi refresh
+      await new Promise(resolve => setTimeout(resolve, 300));
+      const newRoom = roomsProp?.find((r: Room) => r.name === roomName);
+      targetRoomId = newRoom?._id;
+    }
+    
+    // Fetch details cho room mới nếu có ID
+    if (targetRoomId) {
+      // Fetch details cho room mới
+      if (!fetchingRoomRef.current.has(targetRoomId)) {
+        fetchingRoomRef.current.add(targetRoomId);
+        try {
+          const roomData = await roomAPI.getRoomDetails(targetRoomId);
+          
+          // Đánh dấu room đã được fetch details
+          const roomDataWithFlag = { ...roomData, _fetchedDetails: true };
+          
+          // Cập nhật room trong roomsWithData
+          setRoomsWithData(prevRooms => {
+            const updatedRooms = prevRooms.map(r => 
+              r._id === targetRoomId ? { ...r, ...roomDataWithFlag } : r
+            );
+            // Nếu room chưa có trong list, thêm vào
+            if (!updatedRooms.find(r => r._id === targetRoomId)) {
+              updatedRooms.push(roomDataWithFlag);
+            }
+            return updatedRooms;
+          });
+          
+          // Cập nhật cache
+          if (roomData.devices && roomData.devices.length > 0) {
+            roomDevicesCache.setDevices(targetRoomId, roomData.devices);
+            window.dispatchEvent(new CustomEvent(`room-devices-updated-${targetRoomId}`, { 
+              detail: { devices: roomData.devices } 
+            }));
+          }
+          
+          // Dispatch event để RoomCard cập nhật sensors
+          if (roomData.sensors) {
+            window.dispatchEvent(new CustomEvent(`room-sensors-updated-${targetRoomId}`, { 
+              detail: { sensors: roomData.sensors } 
+            }));
+          }
+        } catch (error) {
+          console.error('Error fetching new room details:', error);
+        } finally {
+          fetchingRoomRef.current.delete(targetRoomId);
+        }
+      }
+    }
   };
 
   const handleDeleteRoomSuccess = () => {
     handleRoomUpdateSuccess();
   };
 
+
+  // Wrapper để cập nhật local state sau khi toggle device power
+  const handleDeviceToggle = useCallback(async (deviceId: string) => {
+    if (!onDeviceToggle) return;
+    
+    // Lấy enabled state hiện tại từ props hoặc local state
+    const device = roomDevices.find(d => (d._id || d.id) === deviceId) || 
+                   devicesWithoutRoom.find(d => (d._id || d.id) === deviceId) ||
+                   devices.find(d => (d._id || d.id) === deviceId);
+    const currentEnabled = localDeviceEnabled.get(deviceId) ?? 
+                          (device?.enabled !== undefined ? device.enabled : (device?.status === 'on'));
+    const newEnabled = !currentEnabled;
+    
+    // Optimistic update: cập nhật ngay lập tức
+    setLocalDeviceEnabled(prev => {
+      const newMap = new Map(prev);
+      newMap.set(deviceId, newEnabled);
+      return newMap;
+    });
+    
+    try {
+      await onDeviceToggle(deviceId);
+      // API đã thành công, state đã được cập nhật ở trên
+    } catch (error) {
+      // Rollback nếu API thất bại
+      setLocalDeviceEnabled(prev => {
+        const newMap = new Map(prev);
+        newMap.set(deviceId, currentEnabled);
+        return newMap;
+      });
+      throw error;
+    }
+  }, [onDeviceToggle, roomDevices, devicesWithoutRoom, devices, localDeviceEnabled]);
+
+  // Sync local state với props khi devices thay đổi
+  // Chỉ sync cho các device mới hoặc device không có trong local state
+  useEffect(() => {
+    const allDevices = [...roomDevices, ...devicesWithoutRoom, ...devices];
+    setLocalDeviceEnabled(prev => {
+      const newMap = new Map(prev);
+      allDevices.forEach(device => {
+        const deviceId = device._id || device.id;
+        const enabled = device.enabled !== undefined ? device.enabled : (device.status === 'on');
+        // Chỉ sync nếu device chưa có trong local state (để giữ optimistic update)
+        if (!newMap.has(deviceId)) {
+          newMap.set(deviceId, enabled);
+        }
+      });
+      return newMap;
+    });
+  }, [roomDevices, devicesWithoutRoom, devices]); // Sync khi devices thay đổi từ props
 
   const handleViewDeviceDetails = (deviceId: string) => {
     navigate('/devices', { state: { selectedDeviceId: deviceId } });
@@ -546,18 +657,30 @@ export function Rooms({
                     actuators={actuators || []}
                     isSelected={isSelected}
                     onSelect={async (roomId) => {
-                      // Khi click vào room, fetch dữ liệu mới cho room đó
+                      // Gọi onRoomClick trước để set selected room (không block UI)
+                      onRoomClick?.(roomId);
+                      
+                      // LUÔN gọi detail API khi click vào phòng (refresh data mới nhất)
+                      // Kiểm tra xem room đang được fetch chưa (tránh duplicate calls)
+                      if (fetchingRoomRef.current.has(roomId)) {
+                        return; // Đang fetch rồi, không gọi lại
+                      }
+                      
+                      fetchingRoomRef.current.add(roomId);
                       try {
-                        const roomData = await roomAPI.refreshRoomData(roomId);
+                        const roomData = await roomAPI.getRoomDetails(roomId);
+                        
+                        // Đánh dấu room đã được fetch details
+                        const roomDataWithFlag = { ...roomData, _fetchedDetails: true };
                         
                         // Cập nhật room trong roomsWithData
                         setRoomsWithData(prevRooms => {
                           const updatedRooms = prevRooms.map(r => 
-                            r._id === roomId ? { ...r, ...roomData } : r
+                            r._id === roomId ? { ...r, ...roomDataWithFlag } : r
                           );
                           // Nếu room chưa có trong list, thêm vào
                           if (!updatedRooms.find(r => r._id === roomId)) {
-                            updatedRooms.push(roomData);
+                            updatedRooms.push(roomDataWithFlag);
                           }
                           return updatedRooms;
                         });
@@ -577,12 +700,11 @@ export function Rooms({
                           }));
                         }
                       } catch (error) {
-                        console.error('Error refreshing room data:', error);
+                        console.error('Error fetching room data:', error);
                         toast.error('Không thể tải dữ liệu phòng', { duration: 1000 });
+                      } finally {
+                        fetchingRoomRef.current.delete(roomId);
                       }
-                      
-                      // Gọi onRoomClick để set selected room
-                      onRoomClick?.(roomId);
                     }}
                     onRoomControl={onRoomControl}
                     onEditRoom={handleEditRoom}
@@ -674,7 +796,10 @@ export function Rooms({
               <div className="flex flex-col gap-4 sm:gap-5">
                 {roomDevices.map((device) => {
                   const deviceId = device._id || device.id;
-                  const deviceEnabled = device.enabled !== undefined ? device.enabled : (device.status === 'on');
+                  // Ưu tiên local state (optimistic update), fallback về props
+                  const deviceEnabled = localDeviceEnabled.has(deviceId) 
+                    ? localDeviceEnabled.get(deviceId)!
+                    : (device.enabled !== undefined ? device.enabled : (device.status === 'on'));
                   
                   // Icon mapping
                   const iconMap: Record<string, typeof Lightbulb> = {
@@ -724,7 +849,7 @@ export function Rooms({
                           <Switch
                             checked={deviceEnabled}
                             onCheckedChange={(checked) => {
-                              onDeviceToggle(deviceId);
+                              handleDeviceToggle(deviceId);
                             }}
                             onClick={(e) => {
                               e.stopPropagation();
@@ -851,7 +976,10 @@ export function Rooms({
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {devicesWithoutRoom.map((device) => {
                     const deviceId = device._id || device.id;
-                    const deviceEnabled = device.enabled !== undefined ? device.enabled : (device.status === 'on');
+                    // Ưu tiên local state (optimistic update), fallback về props
+                    const deviceEnabled = localDeviceEnabled.has(deviceId) 
+                      ? localDeviceEnabled.get(deviceId)!
+                      : (device.enabled !== undefined ? device.enabled : (device.status === 'on'));
                     
                     const iconMap: Record<string, typeof Lightbulb> = {
                       light: Lightbulb,

@@ -15,18 +15,12 @@ async def create_room_route(payload: RoomCreate, current_user: dict = Depends(ge
 
 
 @router.get("/", response_model=ResponseSchema)
-async def get_all_rooms_route(
-    include_data: bool = False,
-    current_user: dict = Depends(get_current_user)
-):
+async def get_all_rooms_route(current_user: dict = Depends(get_current_user)):
     """
-    Lấy danh sách tất cả phòng của user
-    - include_data=true: Trả về đầy đủ dữ liệu (devices, sensors với dữ liệu mới nhất, actuators)
-    - include_data=false: Chỉ trả về danh sách rooms (mặc định)
+    Lấy danh sách tất cả phòng của user (chỉ trả về thông tin phòng cơ bản)
+    Để lấy chi tiết phòng kèm devices, sensors, actuators, gọi GET /rooms/{room_id}/details
     """
     user_id = str(current_user["_id"])
-    if include_data:
-        return room_controller.get_all_rooms_with_data(user_id)
     return room_controller.get_all_rooms(user_id)
 
 

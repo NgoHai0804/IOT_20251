@@ -290,28 +290,65 @@ def get_all_rooms_with_data(user_id: str = None):
                 }
             )
         
-        # Lấy tất cả device_ids của user từ bảng user_room_devices
+        # Lấy tất cả device links của user từ bảng user_room_devices (chỉ dùng bảng này)
         all_user_device_links = list(user_room_devices_collection.find({"user_id": user_id}))
-        all_device_ids = list(set([link["device_id"] for link in all_user_device_links]))
+        logger.info(f"Found {len(all_user_device_links)} device links for user {user_id} from user_room_devices table")
+        
+        # Lấy tất cả device_ids từ bảng user_room_devices (bao gồm cả devices không có room_id)
+        all_device_ids = list(set([link["device_id"] for link in all_user_device_links if "device_id" in link and link["device_id"]]))
+        logger.info(f"Found {len(all_device_ids)} unique device IDs from user_room_devices table: {all_device_ids}")
         
         # Lấy tất cả devices, sensors, actuators một lần để tối ưu
         all_devices = {}
         all_sensors = {}
         all_actuators = {}
+        device_id_mapping = {}  # Mapping từ device_id trong user_room_devices -> _id thực tế trong devices
         
         if all_device_ids:
-            devices_list = list(devices_collection.find({"_id": {"$in": all_device_ids}}))
-            for device in devices_list:
-                all_devices[device["_id"]] = device
+            # Tạo mapping từ device_id trong user_room_devices sang _id thực tế trong devices
+            # Thử query bằng _id trước
+            devices_by_id = list(devices_collection.find({"_id": {"$in": all_device_ids}}))
+            logger.info(f"Found {len(devices_by_id)} devices in database by _id")
             
-            sensors_list = list(sensors_collection.find({"device_id": {"$in": all_device_ids}}))
+            # Thử query bằng device_id field (backward compatible)
+            devices_by_device_id_field = list(devices_collection.find({"device_id": {"$in": all_device_ids}}))
+            logger.info(f"Found {len(devices_by_device_id_field)} devices in database by device_id field")
+            
+            # Tạo mapping: device_id từ user_room_devices -> _id thực tế trong devices
+            for device in devices_by_id:
+                device_key = device.get("_id")
+                all_devices[device_key] = device
+                # Map device_id từ link -> _id thực tế
+                device_id_mapping[device_key] = device_key
+                logger.info(f"Added device by _id: link_id={device_key}, _id={device_key}, device_id={device.get('device_id', 'N/A')}")
+            
+            for device in devices_by_device_id_field:
+                device_key = device.get("_id")
+                device_id_field = device.get("device_id")
+                if device_key not in all_devices:
+                    all_devices[device_key] = device
+                # Map device_id từ link -> _id thực tế
+                if device_id_field:
+                    device_id_mapping[device_id_field] = device_key
+                device_id_mapping[device_key] = device_key
+                logger.info(f"Added device by device_id field: link_id={device_id_field}, _id={device_key}, device_id={device_id_field}")
+            
+            logger.info(f"Device ID mapping: {device_id_mapping}")
+            
+            # Lấy sensors và actuators - sử dụng actual device IDs
+            actual_device_ids = list(set(device_id_mapping.values())) if device_id_mapping else all_device_ids
+            logger.info(f"Querying sensors/actuators with actual device IDs: {actual_device_ids}")
+            
+            sensors_list = list(sensors_collection.find({"device_id": {"$in": actual_device_ids}}))
+            logger.info(f"Found {len(sensors_list)} sensors")
             for sensor in sensors_list:
                 device_id = sensor["device_id"]
                 if device_id not in all_sensors:
                     all_sensors[device_id] = []
                 all_sensors[device_id].append(sensor)
             
-            actuators_list = list(actuators_collection.find({"device_id": {"$in": all_device_ids}}))
+            actuators_list = list(actuators_collection.find({"device_id": {"$in": actual_device_ids}}))
+            logger.info(f"Found {len(actuators_list)} actuators")
             for actuator in actuators_list:
                 device_id = actuator["device_id"]
                 if device_id not in all_actuators:
@@ -349,27 +386,51 @@ def get_all_rooms_with_data(user_id: str = None):
                     }
         
         # Xây dựng response cho từng room
+        # Sử dụng dữ liệu đã lấy từ bảng user_room_devices (không query lại)
         rooms_with_data = []
         for room in rooms:
             room_id = room["_id"]
             
-            # Lấy devices của room từ bảng user_room_devices
-            room_device_links = [link for link in all_user_device_links if link.get("room_id") == room_id]
-            room_device_ids = [link["device_id"] for link in room_device_links]
+            # Lọc devices của room này từ dữ liệu đã lấy từ bảng user_room_devices
+            # Chỉ lấy những links có room_id khớp với room_id hiện tại (không phải None)
+            room_device_links = []
+            for link in all_user_device_links:
+                link_room_id = link.get("room_id")
+                if link_room_id is not None:
+                    # So sánh cả string và ObjectId để đảm bảo chính xác
+                    if str(link_room_id) == str(room_id) or link_room_id == room_id:
+                        room_device_links.append(link)
+            
+            room_device_ids = [link["device_id"] for link in room_device_links if "device_id" in link and link["device_id"]]
+            logger.info(f"Room {room_id} has {len(room_device_ids)} devices (from user_room_devices table)")
             
             # Lấy devices, sensors, actuators cho room này
             room_devices = []
             room_sensors = []
             room_actuators = []
             
-            for device_id in room_device_ids:
-                if device_id in all_devices:
-                    device = all_devices[device_id].copy()
+            for link_device_id in room_device_ids:
+                # Tìm actual device_id từ mapping
+                actual_device_id = device_id_mapping.get(link_device_id, link_device_id)
+                logger.info(f"Mapping device_id from link: {link_device_id} -> {actual_device_id}")
+                
+                # Tìm device trong all_devices
+                device = None
+                if actual_device_id in all_devices:
+                    device = all_devices[actual_device_id].copy()
+                elif link_device_id in all_devices:
+                    device = all_devices[link_device_id].copy()
+                else:
+                    logger.warning(f"Device not found: link_id={link_device_id}, actual_id={actual_device_id}")
+                
+                if device:
+                    # Sử dụng actual_device_id để lấy sensors và actuators
+                    device_id_for_sensors = actual_device_id
                     
                     # Thêm sensors với dữ liệu mới nhất
                     device_sensors = []
-                    if device_id in all_sensors:
-                        for sensor in all_sensors[device_id]:
+                    if device_id_for_sensors in all_sensors:
+                        for sensor in all_sensors[device_id_for_sensors]:
                             sensor_dict = sensor.copy()
                             sensor_id = sensor_dict["_id"]
                             
@@ -386,8 +447,8 @@ def get_all_rooms_with_data(user_id: str = None):
                     
                     # Thêm actuators
                     device_actuators = []
-                    if device_id in all_actuators:
-                        device_actuators = [a.copy() for a in all_actuators[device_id]]
+                    if device_id_for_sensors in all_actuators:
+                        device_actuators = [a.copy() for a in all_actuators[device_id_for_sensors]]
                         room_actuators.extend(device_actuators)
                     device["actuators"] = device_actuators
                     
@@ -399,6 +460,7 @@ def get_all_rooms_with_data(user_id: str = None):
             room_dict["sensors"] = room_sensors
             room_dict["actuators"] = room_actuators
             
+            logger.info(f"Room {room_id} final data: {len(room_devices)} devices, {len(room_sensors)} sensors, {len(room_actuators)} actuators")
             rooms_with_data.append(room_dict)
         
         return JSONResponse(
@@ -593,6 +655,7 @@ def get_room_details(room_id: str, user_id: str = None):
             )
 
         # Lấy devices từ bảng user_room_devices (cấu trúc mới)
+        # Chỉ lấy những links có room_id khớp với room_id hiện tại (không phải None)
         user_room_device_links = list(user_room_devices_collection.find({
             "user_id": user_id,
             "room_id": room_id
@@ -611,8 +674,8 @@ def get_room_details(room_id: str, user_id: str = None):
                 }
             )
         
-        # Lấy device_ids từ links
-        device_ids = [link["device_id"] for link in user_room_device_links]
+        # Lấy device_ids từ links (đảm bảo device_id tồn tại)
+        device_ids = [link["device_id"] for link in user_room_device_links if "device_id" in link and link["device_id"]]
         
         # Lấy devices
         devices = list(devices_collection.find({"_id": {"$in": device_ids}}))
@@ -663,10 +726,12 @@ def get_room_details(room_id: str, user_id: str = None):
             
             sensors_with_data.append(sensor_dict)
 
-        # Nhóm sensors và actuators theo device
+        # Xử lý devices: chỉ giữ thông tin cần thiết, bỏ sensors và actuators
         for device in devices:
-            device["sensors"] = [s for s in sensors_with_data if s["device_id"] == device["_id"]]
-            device["actuators"] = [a for a in actuators if a["device_id"] == device["_id"]]
+            device["_id"] = str(device["_id"])
+            # Xóa device_password và các trường không cần thiết
+            device.pop("device_password", None)
+            # Không thêm sensors và actuators vào device
 
         room["devices"] = devices
         room["sensors"] = sensors_with_data

@@ -13,14 +13,14 @@ class ResponseSchema(BaseModel):
 class IoTRegisterDevice(BaseModel):
     """
     Schema để thiết bị IoT đăng ký với server
-    - device_serial: Serial number của thiết bị (bắt buộc)
+    - device_id: ID của thiết bị (bắt buộc) - device tự tạo và gửi lên, dùng làm identifier duy nhất
     - device_name: Tên thiết bị (bắt buộc)
     - device_type: Loại thiết bị (bắt buộc)
     - device_password: Mật khẩu thiết bị (tùy chọn, để bảo mật)
     - location: Vị trí/phòng (tùy chọn)
     - note: Ghi chú (tùy chọn)
     """
-    device_serial: str = Field(..., description="Device serial number - required")
+    device_id: str = Field(..., description="Device ID - required, device tự tạo và gửi lên, dùng làm identifier duy nhất")
     device_name: str = Field(..., description="Device name - required")
     device_type: str = Field(..., description="Device type - required")
     device_password: Optional[str] = Field(None, description="Device password - optional")

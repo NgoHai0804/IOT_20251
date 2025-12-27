@@ -2,7 +2,9 @@
 from jose import jwt, ExpiredSignatureError, JWTError
 from fastapi import Depends, HTTPException, Header, status
 from datetime import datetime, timedelta
-from utils.database import users_collection
+from utils.database import users_collection, refresh_tokens_collection
+import secrets
+import hashlib
 
 import os
 from dotenv import load_dotenv
@@ -10,12 +12,13 @@ load_dotenv()
 
 SECRET_KEY = os.environ.get("SECRET_KEY")
 ALGORITHM = os.environ.get("ALGORITHM")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 1440)) # 1 ngày
+ACCESS_TOKEN_EXPIRE_MINUTES = int(os.environ.get("ACCESS_TOKEN_EXPIRE_MINUTES", 15)) # 15 phút (ngắn hơn để test refresh)
+REFRESH_TOKEN_EXPIRE_DAYS = int(os.environ.get("REFRESH_TOKEN_EXPIRE_DAYS", 30)) # 30 ngày
 
-print(SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES)
+print(SECRET_KEY, ALGORITHM, ACCESS_TOKEN_EXPIRE_MINUTES, REFRESH_TOKEN_EXPIRE_DAYS)
 
 # =========================
-# Tạo JWT token
+# Tạo JWT access token
 # =========================
 def create_access_token(data: dict, expires_delta: timedelta = None):
     to_encode = data.copy()
@@ -28,6 +31,104 @@ def create_access_token(data: dict, expires_delta: timedelta = None):
     
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+
+# =========================
+# Tạo refresh token
+# =========================
+def create_refresh_token(user_email: str) -> str:
+    """
+    Tạo refresh token ngẫu nhiên và lưu vào database
+    Returns: refresh token string
+    """
+    # Tạo token ngẫu nhiên an toàn
+    token = secrets.token_urlsafe(32)
+    
+    # Hash token trước khi lưu vào database (bảo mật)
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    
+    # Thời gian hết hạn
+    expires_at = datetime.utcnow() + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    
+    # Lưu vào database
+    refresh_tokens_collection.insert_one({
+        "token_hash": token_hash,
+        "user_email": user_email,
+        "created_at": datetime.utcnow(),
+        "expires_at": expires_at,
+        "is_revoked": False
+    })
+    
+    return token
+
+
+# =========================
+# Xác thực refresh token
+# =========================
+def verify_refresh_token(token: str) -> dict:
+    """
+    Xác thực refresh token và trả về thông tin user
+    Returns: dict với user_email nếu hợp lệ
+    Raises: HTTPException nếu token không hợp lệ
+    """
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token is required",
+        )
+    
+    # Hash token để so sánh
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    
+    # Tìm token trong database
+    token_doc = refresh_tokens_collection.find_one({
+        "token_hash": token_hash,
+        "is_revoked": False
+    })
+    
+    if not token_doc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid refresh token",
+        )
+    
+    # Kiểm tra hết hạn
+    if token_doc["expires_at"] < datetime.utcnow():
+        # Xóa token hết hạn
+        refresh_tokens_collection.delete_one({"_id": token_doc["_id"]})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Refresh token expired",
+        )
+    
+    return {"user_email": token_doc["user_email"]}
+
+
+# =========================
+# Thu hồi refresh token
+# =========================
+def revoke_refresh_token(token: str):
+    """
+    Đánh dấu refresh token là đã thu hồi
+    """
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    refresh_tokens_collection.update_one(
+        {"token_hash": token_hash},
+        {"$set": {"is_revoked": True}}
+    )
+
+
+# =========================
+# Thu hồi tất cả refresh token của user
+# =========================
+def revoke_all_user_refresh_tokens(user_email: str):
+    """
+    Thu hồi tất cả refresh token của một user (khi đổi mật khẩu, logout, etc.)
+    """
+    refresh_tokens_collection.update_many(
+        {"user_email": user_email, "is_revoked": False},
+        {"$set": {"is_revoked": True}}
+    )
 
 
 # =========================

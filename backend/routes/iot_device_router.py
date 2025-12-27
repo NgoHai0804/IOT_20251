@@ -9,7 +9,7 @@ router = APIRouter(prefix="/iot/device", tags=["IoT Device"])
 async def register_device_route(payload: IoTRegisterDevice):
     """
     API đăng ký thiết bị IoT với server
-    - device_serial: Serial number của thiết bị
+    - device_id: ID của thiết bị (device tự tạo và gửi lên, dùng làm identifier duy nhất)
     - device_name: Tên thiết bị
     - device_type: Loại thiết bị
     - device_password: Mật khẩu thiết bị (tùy chọn)
@@ -19,7 +19,7 @@ async def register_device_route(payload: IoTRegisterDevice):
     Trả về device_id để thiết bị sử dụng cho các API khác
     """
     return iot_device_controller.register_device(
-        device_serial=payload.device_serial,
+        device_id=payload.device_id,
         device_name=payload.device_name,
         device_type=payload.device_type,
         device_password=payload.device_password,

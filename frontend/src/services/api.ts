@@ -7,25 +7,94 @@ interface ApiResponse<T> {
   data: T | null;
 }
 
-// Lấy token xác thực từ localStorage
+// Lấy access token từ localStorage
 function getAuthToken(): string | null {
   return localStorage.getItem('auth_token');
 }
 
-// Đặt token xác thực
+// Đặt access token
 function setAuthToken(token: string): void {
   localStorage.setItem('auth_token', token);
 }
 
-// Xóa token xác thực
-function clearAuthToken(): void {
-  localStorage.removeItem('auth_token');
+// Lấy refresh token từ localStorage
+function getRefreshToken(): string | null {
+  return localStorage.getItem('refresh_token');
 }
 
-// Hàm helper cho request API
+// Đặt refresh token
+function setRefreshToken(token: string): void {
+  localStorage.setItem('refresh_token', token);
+}
+
+// Xóa tất cả tokens
+function clearAuthToken(): void {
+  localStorage.removeItem('auth_token');
+  localStorage.removeItem('refresh_token');
+}
+
+// Refresh access token sử dụng refresh token
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    return null;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE_URL}/users/refresh`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+
+    const data = await response.json();
+    const errorMessage = data.detail || data.message || '';
+
+    // Nếu là lỗi "Invalid token", clear tokens và trigger logout
+    if (errorMessage === 'Invalid token' || errorMessage.includes('Invalid token')) {
+      clearAuthToken();
+      localStorage.removeItem('user_info');
+      window.dispatchEvent(new CustomEvent('auth:invalid-token'));
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+        window.location.href = '/login';
+      }
+      return null;
+    }
+
+    if (response.ok && data.status && data.data) {
+      // Lưu tokens mới
+      setAuthToken(data.data.access_token);
+      setRefreshToken(data.data.refresh_token);
+      return data.data.access_token;
+    } else {
+      // Refresh token không hợp lệ, xóa tokens
+      clearAuthToken();
+      localStorage.removeItem('user_info');
+      window.dispatchEvent(new CustomEvent('auth:invalid-token'));
+      if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+        window.location.href = '/login';
+      }
+      return null;
+    }
+  } catch (error) {
+    console.error('Error refreshing token:', error);
+    clearAuthToken();
+    localStorage.removeItem('user_info');
+    window.dispatchEvent(new CustomEvent('auth:invalid-token'));
+    if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+      window.location.href = '/login';
+    }
+    return null;
+  }
+}
+
+// Hàm helper cho request API với tự động refresh token
 async function apiRequest<T>(
   endpoint: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  retryCount: number = 0
 ): Promise<ApiResponse<T>> {
   const token = getAuthToken();
   
@@ -54,8 +123,44 @@ async function apiRequest<T>(
       throw new Error(`Server returned non-JSON response: ${text}`);
     }
     
+    // Kiểm tra lỗi "Invalid token" - tự động logout và redirect
+    if (response.status === 401) {
+      const errorMessage = data.detail || data.message || '';
+      
+      // Nếu là lỗi "Invalid token", tự động logout và redirect ngay (không thử refresh)
+      if (errorMessage === 'Invalid token' || errorMessage.includes('Invalid token')) {
+        clearAuthToken();
+        localStorage.removeItem('user_info');
+        // Dispatch event để App.tsx có thể xử lý
+        window.dispatchEvent(new CustomEvent('auth:invalid-token'));
+        // Redirect về trang đăng nhập
+        if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+          window.location.href = '/login';
+        }
+        throw new Error('Invalid token. Please login again.');
+      }
+      
+      // Nếu access token hết hạn (401) nhưng không phải "Invalid token", thử refresh token
+      if (retryCount === 0 && getRefreshToken()) {
+        const newToken = await refreshAccessToken();
+        if (newToken) {
+          // Retry request với token mới
+          return apiRequest<T>(endpoint, options, retryCount + 1);
+        } else {
+          // Refresh thất bại, clear tokens và redirect
+          clearAuthToken();
+          localStorage.removeItem('user_info');
+          window.dispatchEvent(new CustomEvent('auth:invalid-token'));
+          if (window.location.pathname !== '/login' && window.location.pathname !== '/') {
+            window.location.href = '/login';
+          }
+          throw new Error('Session expired. Please login again.');
+        }
+      }
+    }
+    
     if (!response.ok) {
-      throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      throw new Error(data.message || data.detail || `HTTP error! status: ${response.status}`);
     }
     
     return data;
@@ -90,14 +195,15 @@ export const authAPI = {
     throw new Error(response.message || 'Registration failed');
   },
   
-  login: async (email: string, password: string): Promise<{ token: string; user: any }> => {
-    const response = await apiRequest<{ token: string; user: any }>('/users/login', {
+  login: async (email: string, password: string): Promise<{ access_token: string; refresh_token: string; user: any }> => {
+    const response = await apiRequest<{ access_token: string; refresh_token: string; user: any }>('/users/login', {
       method: 'POST',
       body: JSON.stringify({ email, password }),
     });
     
     if (response.status && response.data) {
-      setAuthToken(response.data.token);
+      setAuthToken(response.data.access_token);
+      setRefreshToken(response.data.refresh_token);
       if (response.data.user) {
         localStorage.setItem('user_info', JSON.stringify(response.data.user));
       }
@@ -107,7 +213,48 @@ export const authAPI = {
     throw new Error(response.message || 'Login failed');
   },
   
-  logout: () => {
+  refresh: async (): Promise<{ access_token: string; refresh_token: string } | null> => {
+    const refreshToken = getRefreshToken();
+    if (!refreshToken) {
+      return null;
+    }
+    
+    try {
+      const response = await apiRequest<{ access_token: string; refresh_token: string }>('/users/refresh', {
+        method: 'POST',
+        body: JSON.stringify({ refresh_token: refreshToken }),
+      });
+      
+      if (response.status && response.data) {
+        setAuthToken(response.data.access_token);
+        setRefreshToken(response.data.refresh_token);
+        return response.data;
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Refresh token error:', error);
+      clearAuthToken();
+      return null;
+    }
+  },
+  
+  logout: async () => {
+    const refreshToken = getRefreshToken();
+    
+    // Nếu có refresh token, gọi backend để thu hồi
+    if (refreshToken) {
+      try {
+        await apiRequest('/users/logout', {
+          method: 'POST',
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+      } catch (error) {
+        // Ignore errors - vẫn xóa tokens ở client
+        console.error('Logout error:', error);
+      }
+    }
+    
     clearAuthToken();
     localStorage.removeItem('user_info');
   },
@@ -118,7 +265,7 @@ export const authAPI = {
 // API thiết bị
 export const deviceAPI = {
   getAllDevices: async (): Promise<any[]> => {
-    const response = await apiRequest<{ devices: any[] }>('/user-device/get-all-device');
+    const response = await apiRequest<{ devices: any[] }>('/devices');
     
     if (response.status && response.data) {
       return response.data.devices || [];
@@ -140,10 +287,11 @@ export const deviceAPI = {
     throw new Error(response.message || 'Failed to get device info');
   },
   
-  addDevice: async (deviceId: string, deviceName: string, location: string, note?: string): Promise<any> => {
+  addDevice: async (deviceId: string, devicePassword: string | null | undefined, deviceName: string, location: string, note?: string): Promise<any> => {
     /**
      * Thêm thiết bị cho người dùng
-     * - deviceId: ID thiết bị
+     * - deviceId: ID của thiết bị (bắt buộc)
+     * - devicePassword: Mật khẩu thiết bị (tùy chọn - để trống nếu thiết bị không có mật khẩu)
      * - deviceName: Tên thiết bị
      * - location: Phòng/vị trí thiết bị
      * - note: Ghi chú (tùy chọn)
@@ -152,6 +300,7 @@ export const deviceAPI = {
       method: 'POST',
       body: JSON.stringify({ 
         device_id: deviceId,
+        device_password: devicePassword && devicePassword.trim() ? devicePassword : null,
         device_name: deviceName,
         location: location,
         note: note || null
@@ -218,9 +367,8 @@ export const roomAPI = {
     throw new Error(response.message || 'Failed to create room');
   },
 
-  getAllRooms: async (includeData: boolean = false): Promise<any[]> => {
-    const endpoint = includeData ? '/rooms/?include_data=true' : '/rooms/';
-    const response = await apiRequest<{ rooms: any[] }>(endpoint);
+  getAllRooms: async (): Promise<any[]> => {
+    const response = await apiRequest<{ rooms: any[] }>('/rooms/');
     
     if (response.status && response.data) {
       return response.data.rooms || [];
@@ -354,6 +502,20 @@ export const newDeviceAPI = {
     }
     
     throw new Error(response.message || 'Failed to get device');
+  },
+
+  getDeviceDetail: async (deviceId: string): Promise<{ device: any; sensors: any[]; actuators: any[] }> => {
+    const response = await apiRequest<any>(`/devices/${deviceId}/detail`);
+    
+    if (response.status && response.data) {
+      return {
+        device: response.data,
+        sensors: response.data.sensors || [],
+        actuators: response.data.actuators || [],
+      };
+    }
+    
+    throw new Error(response.message || 'Failed to get device detail');
   },
 
   getDevicesByRoom: async (roomId: string): Promise<any[]> => {
@@ -552,6 +714,61 @@ export const sensorDataAPI = {
       temperature: [],
       humidity: [],
       energy: [],
+    };
+  },
+
+  getTemperatureStatisticsTable: async (params?: {
+    device_id?: string;
+    days?: 1 | 3 | 7;
+  }): Promise<{
+    table_data: Array<{
+      time: string;
+      time_display: string;
+      min: number;
+      max: number;
+      avg: number;
+      count: number;
+    }>;
+    days: number;
+    start_time: string;
+    end_time: string;
+  }> => {
+    const queryParams = new URLSearchParams();
+    
+    if (params?.device_id) queryParams.append('device_id', params.device_id);
+    if (params?.days) queryParams.append('days', params.days.toString());
+    
+    const queryString = queryParams.toString();
+    const endpoint = `/sensor-data/temperature/table${queryString ? `?${queryString}` : ''}`;
+    
+    const response = await apiRequest<{
+      table_data: Array<{
+        time: string;
+        time_display: string;
+        min: number;
+        max: number;
+        avg: number;
+        count: number;
+      }>;
+      days: number;
+      start_time: string;
+      end_time: string;
+    }>(endpoint);
+    
+    if (response.status && response.data) {
+      return {
+        table_data: response.data.table_data || [],
+        days: response.data.days || 1,
+        start_time: response.data.start_time || '',
+        end_time: response.data.end_time || '',
+      };
+    }
+    
+    return {
+      table_data: [],
+      days: params?.days || 1,
+      start_time: '',
+      end_time: '',
     };
   },
 };

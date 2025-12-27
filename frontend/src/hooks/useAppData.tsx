@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { Room, Device, Sensor, Actuator, Notification } from '@/types';
 import { roomAPI, deviceAPI, newDeviceAPI, newSensorAPI, newActuatorAPI, sensorDataAPI, notificationAPI } from '@/services/api';
@@ -34,6 +35,7 @@ export interface AppContextType extends AppState, AppActions {
 }
 
 export function useAppData(): AppContextType {
+  const location = useLocation();
   const [loading, setLoading] = useState(true);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [devices, setDevices] = useState<Device[]>([]);
@@ -47,20 +49,16 @@ export function useAppData(): AppContextType {
   const [selectedRoomId, setSelectedRoomId] = useState<string | null>(null);
   const [isToggling, setIsToggling] = useState(false);
   const isTogglingRef = useRef(isToggling);
+  
+  // Kiểm tra xem có đang ở trang Devices hoặc Rooms không
+  const isOnDevicesPage = location.pathname === '/devices';
+  const isOnRoomsPage = location.pathname === '/rooms';
 
-  // Lấy phòng từ backend
-  const fetchRooms = async (includeData: boolean = false) => {
+  // Lấy phòng từ backend (chỉ lấy danh sách phòng cơ bản)
+  const fetchRooms = async () => {
     try {
-      const roomsData = await roomAPI.getAllRooms(includeData);
-      
-      // Chỉ cập nhật rooms state nếu không phải includeData
-      // Nếu includeData=true, không cập nhật rooms (để Rooms component tự quản lý)
-      if (!includeData) {
-        setRooms(roomsData);
-      } else {
-        // Nếu includeData=true, chỉ cập nhật sensors và actuators, không cập nhật rooms
-        updateSensorsAndActuatorsFromRooms(roomsData);
-      }
+      const roomsData = await roomAPI.getAllRooms();
+      setRooms(roomsData);
     } catch (error) {
       console.error('Error fetching rooms:', error);
       toast.error('Failed to load rooms', { duration: 1000 });
@@ -97,22 +95,36 @@ export function useAppData(): AppContextType {
   // Fetch rooms với data chỉ để cập nhật sensors/actuators (không cập nhật rooms state)
   const fetchRoomsDataForSensors = async () => {
     try {
-      const roomsData = await roomAPI.getAllRooms(true);
-      updateSensorsAndActuatorsFromRooms(roomsData);
+      // Lấy danh sách phòng cơ bản
+      const roomsData = await roomAPI.getAllRooms();
+      
+      // Lấy chi tiết cho từng phòng
+      const roomsWithDetails = await Promise.all(
+        roomsData.map(async (room: any) => {
+          try {
+            return await roomAPI.getRoomDetails(room._id);
+          } catch (error) {
+            console.error(`Error fetching details for room ${room._id}:`, error);
+            return room; // Trả về room cơ bản nếu lỗi
+          }
+        })
+      );
+      
+      updateSensorsAndActuatorsFromRooms(roomsWithDetails);
     } catch (error) {
       console.error('Error fetching rooms data for sensors:', error);
     }
   };
 
-  // Lấy tất cả thiết bị (cấu trúc mới: lấy tất cả thiết bị của user, không phân biệt phòng)
+  // Lấy tất cả thiết bị
   const fetchDevices = async () => {
     try {
-      // Lấy tất cả devices của user (bao gồm cả devices không thuộc phòng nào)
-      const allDevices = await deviceAPI.getAllDevices();
-      setDevices(allDevices);
+      const devicesData = await deviceAPI.getAllDevices();
+      setDevices(devicesData);
     } catch (error) {
       console.error('Error fetching devices:', error);
       toast.error('Failed to load devices', { duration: 1000 });
+      setDevices([]);
     }
   };
 
@@ -304,11 +316,21 @@ export function useAppData(): AppContextType {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true);
-      await Promise.all([
-        fetchRooms(false), // Fetch rooms không có data lúc đầu
-        fetchDevices(),
+      const promises = [
         fetchNotifications(),
-      ]);
+      ];
+      
+      // Chỉ fetch devices nếu không ở trang Rooms
+      if (!isOnRoomsPage) {
+        promises.push(fetchDevices());
+      }
+      
+      // Chỉ fetch rooms nếu không ở trang Devices
+      if (!isOnDevicesPage) {
+        promises.push(fetchRooms(false));
+      }
+      
+      await Promise.all(promises);
       setLoading(false);
     };
     
@@ -320,14 +342,27 @@ export function useAppData(): AppContextType {
     const interval = setInterval(() => {
       // Check giá trị mới nhất từ ref
       if (!isTogglingRef.current) {
-        fetchRooms(false); // Fetch rooms không có data định kỳ
-        fetchDevices();
+        // Kiểm tra route hiện tại để quyết định có fetch gì không
+        const currentPath = window.location.pathname;
+        const isCurrentlyOnDevicesPage = currentPath === '/devices';
+        const isCurrentlyOnRoomsPage = currentPath === '/rooms';
+        
+        // Chỉ fetch devices nếu không ở trang Rooms
+        if (!isCurrentlyOnRoomsPage) {
+          fetchDevices();
+        }
+        
+        // Chỉ fetch rooms nếu không ở trang Devices
+        if (!isCurrentlyOnDevicesPage) {
+          fetchRooms(false); // Fetch rooms không có data định kỳ
+        }
+        
         fetchNotifications(); // Fetch notifications định kỳ
       }
     }, 30000); // Changed from 10s to 30s to reduce load
 
     return () => clearInterval(interval);
-  }, []); // Bỏ isToggling khỏi dependencies - chỉ chạy một lần khi mount
+  }, [isOnDevicesPage, isOnRoomsPage]); // Thêm dependencies để re-run khi chuyển trang
 
   // Lấy sensors và actuators khi thiết bị thay đổi (chỉ khi device IDs thay đổi, không phải khi enabled thay đổi)
   const deviceIdsRef = useRef<string>('');
@@ -361,16 +396,16 @@ export function useAppData(): AppContextType {
     }
   }, [devices]); // Trigger khi devices thay đổi, nhưng check deviceIds bên trong để tránh fetch không cần thiết
 
-  // Fetch latest sensor values định kỳ (riêng biệt, không gọi khi toggle)
-  useEffect(() => {
-    if (sensors.length > 0 && !isToggling) {
-      const interval = setInterval(() => {
-        fetchLatestSensorValues();
-      }, 30000); // 30 giây một lần
-      
-      return () => clearInterval(interval);
-    }
-  }, [sensors.length, isToggling]); // Chỉ chạy khi số lượng sensors thay đổi hoặc không đang toggle
+  // Bỏ fetch latest sensor values định kỳ - chỉ gọi với device_id cụ thể
+  // useEffect(() => {
+  //   if (sensors.length > 0 && !isToggling) {
+  //     const interval = setInterval(() => {
+  //       fetchLatestSensorValues();
+  //     }, 30000); // 30 giây một lần
+  //     
+  //     return () => clearInterval(interval);
+  //   }
+  // }, [sensors.length, isToggling]); // Chỉ chạy khi số lượng sensors thay đổi hoặc không đang toggle
 
   // Bỏ useEffect tự động fetch chart data
   // Chart data chỉ được fetch ở trang /devices

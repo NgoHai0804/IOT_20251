@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 
 
-def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32", ip: str = "", status: str = "offline", enabled: bool = True) -> dict:
+def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32", ip: str = "", status: str = "offline", enabled: bool = True, device_password: str = None, location: str = None, note: str = None) -> dict:
     """
     Tạo dict Device
     {
@@ -12,14 +12,17 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
       "type": "esp32",
       "status": "online",
       "ip": "192.168.1.20",
-      "enabled": true
+      "enabled": true,
+      "device_password": "password123" (optional)
     }
     Note: 
     - room_id đã bị bỏ, thay vào đó Room sẽ chứa device_ids
     - user_id đã bị bỏ, sử dụng bảng user_room_devices để quản lý mối liên kết
+    - device_password: Mật khẩu thiết bị (tùy chọn)
+    - _id: ID của thiết bị (device tự tạo và gửi lên)
     """
     device_dict = {
-        "_id": f"device_{str(uuid.uuid4())[:8]}",  # device_01, device_02...
+        "_id": f"device_{str(uuid.uuid4())[:8]}",  # device_01, device_02... (sẽ được ghi đè bằng device_id từ device)
         "name": name,
         "type": device_type,
         "status": status,
@@ -28,6 +31,17 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
         "created_at": datetime.utcnow(),
         "updated_at": datetime.utcnow()
     }
+    
+    # Thêm device_password nếu có
+    if device_password:
+        device_dict["device_password"] = device_password
+    
+    # Thêm location và note nếu có (backward compatible)
+    if location:
+        device_dict["location"] = location
+    if note:
+        device_dict["note"] = note
+    
     # room_id và user_id không còn được sử dụng
     return device_dict
 

@@ -10,49 +10,50 @@ import uuid
 # ==========================
 # Register Device (cho IoT device)
 # ==========================
-def register_device(device_serial: str, device_name: str, device_type: str, 
+def register_device(device_id: str, device_name: str, device_type: str, 
                    device_password: str = None, location: str = None, note: str = None):
     """
     Đăng ký thiết bị IoT với server
-    - Kiểm tra device_serial đã tồn tại chưa
-    - Nếu chưa tồn tại → tạo mới device
+    - device_id: ID của thiết bị (device tự tạo và gửi lên, dùng làm identifier duy nhất)
+    - Kiểm tra device_id đã tồn tại chưa
+    - Nếu chưa tồn tại → tạo mới device với device_id từ device
     - Nếu đã tồn tại → trả về thông tin device hiện có
     """
     try:
-        # Kiểm tra device_serial đã tồn tại chưa
-        existing_device = devices_collection.find_one({"device_serial": device_serial})
+        # Kiểm tra device_id đã tồn tại chưa
+        existing_device = devices_collection.find_one({"_id": device_id})
         
         if existing_device:
             # Device đã tồn tại, trả về thông tin
-            device_id = existing_device.get("device_id")
+            existing_device_id = existing_device.get("_id")
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
                     "status": True,
                     "message": "Device already registered",
                     "data": {
-                        "device_id": device_id,
-                        "device_serial": device_serial,
-                        "device_name": existing_device.get("device_name"),
-                        "device_type": existing_device.get("device_type"),
+                        "device_id": str(existing_device_id),
+                        "device_name": existing_device.get("name"),
+                        "device_type": existing_device.get("type"),
                         "status": existing_device.get("status", "offline")
                     }
                 }
             )
         
-        # Tạo device mới
+        # Tạo device mới với device_id từ device gửi lên
         device = create_device_dict(
-            device_serial=device_serial,
-            device_name=device_name,
+            name=device_name,
             device_type=device_type,
-            location=location or "",
             status="offline",  # Mặc định là offline khi đăng ký
-            note=note or "",
-            device_password=device_password
+            device_password=device_password,
+            location=location,
+            note=note
         )
         
+        # Sử dụng device_id từ device gửi lên thay vì tự tạo
+        device["_id"] = device_id
+        
         result = devices_collection.insert_one(device)
-        device_id = device["device_id"]
         
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,
@@ -61,7 +62,6 @@ def register_device(device_serial: str, device_name: str, device_type: str,
                 "message": "Device registered successfully",
                 "data": {
                     "device_id": device_id,
-                    "device_serial": device_serial,
                     "device_name": device_name,
                     "device_type": device_type,
                     "status": "offline"

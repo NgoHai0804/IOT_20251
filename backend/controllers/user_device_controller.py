@@ -12,32 +12,90 @@ logger = logging.getLogger(__name__)
 # ==========================
 # Add Device
 # ==========================
-def add_device(user_data: dict, device_id: str, device_name: str, location: str, note: str = None):
+def add_device(user_data: dict, device_id: str, device_password: str = None, device_name: str = None, location: str = None, note: str = None):
     """
     Thêm thiết bị cho người dùng
-    - device_id: ID thiết bị (có thể là _id hoặc device_id cũ)
-    - device_name: Tên thiết bị
+    - device_id: ID của thiết bị (bắt buộc)
+    - device_password: Mật khẩu thiết bị (tùy chọn - để trống nếu thiết bị không có mật khẩu)
+    - device_name: Tên thiết bị (để hiển thị cho user)
     - location: Phòng/vị trí thiết bị (tên phòng)
     - note: Ghi chú (tùy chọn)
     
-    Logic mới:
-    - Tìm device bằng _id hoặc device_id (backward compatible)
-    - Nếu chưa tồn tại → tạo device mới với user_id
-    - Tìm hoặc tạo room từ location
-    - Link device với user
+    LƯU Ý QUAN TRỌNG: Chỉ tạo liên kết trong bảng user_room_devices, KHÔNG tạo thiết bị mới trong bảng devices
+    
+    Logic:
+    - Tìm device bằng device_id trong hệ thống
+    - Nếu không tìm thấy → trả về lỗi (KHÔNG tạo thiết bị mới)
+    - Kiểm tra device_password:
+      * Nếu device có password: user phải nhập đúng password
+      * Nếu device không có password: user phải để trống password
+    - Nếu device tồn tại và password đúng → tạo liên kết mới trong user_room_devices
+    - Nếu device không tồn tại hoặc password sai → trả về lỗi
     """
     try:
         user_id = str(user_data["_id"])
 
-        # Tìm device bằng _id hoặc device_id (backward compatible)
-        device = devices_collection.find_one({"_id": device_id}) or \
-                 devices_collection.find_one({"device_id": device_id})
+        # Tìm device bằng device_id trong hệ thống
+        device = devices_collection.find_one({"_id": device_id})
+        
+        # Kiểm tra device có tồn tại không
+        if not device:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "Thiết bị không tồn tại trong hệ thống. Vui lòng kiểm tra lại device ID.",
+                    "data": None
+                }
+            )
+        
+        # Kiểm tra mật khẩu
+        stored_password = device.get("device_password")
+        # Chuẩn hóa device_password: None hoặc rỗng đều coi như không có mật khẩu
+        provided_password = device_password.strip() if device_password and device_password.strip() else None
+        
+        # Nếu device có mật khẩu
+        if stored_password:
+            # User phải cung cấp mật khẩu và phải đúng
+            if not provided_password:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "status": False,
+                        "message": "Thiết bị yêu cầu mật khẩu. Vui lòng nhập mật khẩu.",
+                        "data": None
+                    }
+                )
+            # Kiểm tra mật khẩu có đúng không
+            if stored_password != provided_password:
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={
+                        "status": False,
+                        "message": "Mật khẩu thiết bị không đúng. Vui lòng kiểm tra lại.",
+                        "data": None
+                    }
+                )
+        else:
+            # Device không có mật khẩu - user không được nhập mật khẩu (hoặc để trống)
+            if provided_password:
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "status": False,
+                        "message": "Thiết bị không có mật khẩu. Vui lòng để trống mật khẩu.",
+                        "data": None
+                    }
+                )
+            # Cả device và user đều không có mật khẩu → cho phép liên kết
+        
+        # Lấy device_id từ _id (vì đã tìm bằng device_id)
+        device_id = str(device["_id"])
         
         # Xử lý room_id từ location (nếu có)
         room_id = None
         if location and location.strip():
             # Tìm room theo tên và user_id
-            from utils.database import rooms_collection
             room = rooms_collection.find_one({"name": location.strip(), "user_id": user_id})
             if room:
                 room_id = room["_id"]
@@ -45,61 +103,26 @@ def add_device(user_data: dict, device_id: str, device_name: str, location: str,
             else:
                 logger.info(f"Không tìm thấy phòng '{location}' cho user {user_id}, thiết bị sẽ được thêm mà không có phòng")
         
-        if not device:
-            # Thiết bị chưa tồn tại → tạo mới (KHÔNG có room_id và user_id)
-            from models.device_models import create_device_dict
-            device = create_device_dict(
-                name=device_name,
-                room_id=None,  # Không thuộc phòng nào
-                device_type="esp32",
-                ip="",
-                status="offline",
-                enabled=True
-            )
-            # Sử dụng device_id từ request làm _id nếu hợp lệ, hoặc dùng generated ID
-            if device_id and not device_id.startswith("device_"):
-                # Nếu device_id không phải format chuẩn, dùng generated ID
-                device_id = device["_id"]
-            else:
-                device["_id"] = device_id
-            
-            devices_collection.insert_one(device)
-            logger.info(f" Created new device: {device_id} for user {user_id}")
-        else:
-            # Thiết bị đã tồn tại, cập nhật thông tin (KHÔNG cập nhật room_id và user_id)
-            update_fields = {
-                "name": device_name,
-                "updated_at": datetime.utcnow()
-            }
-            # KHÔNG cập nhật room_id và user_id - sử dụng bảng user_room_devices
-                
-            if note is not None:
-                update_fields["note"] = note
-            
-            # Cập nhật bằng _id
-            devices_collection.update_one(
-                {"_id": device.get("_id", device_id)},
-                {"$set": update_fields}
-            )
-            device_id = device.get("_id", device_id)
-
-        # Tạo hoặc cập nhật liên kết trong bảng user_room_devices
+        # LƯU Ý: Chỉ tạo liên kết trong bảng user_room_devices, KHÔNG cập nhật bảng devices
+        # Kiểm tra xem device đã được liên kết với user này chưa
         existing_link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+        
         if existing_link:
-            # Cập nhật room_id nếu có thay đổi
+            # Device đã được liên kết, cập nhật room_id nếu có thay đổi
             if existing_link.get("room_id") != room_id:
                 user_room_devices_collection.update_one(
                     {"user_id": user_id, "device_id": device_id},
                     {"$set": {"room_id": room_id, "updated_at": datetime.utcnow()}}
                 )
                 logger.info(f"Đã cập nhật liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
+            else:
+                logger.info(f"Device {device_id} đã được liên kết với user {user_id}")
         else:
             # Tạo liên kết mới với room_id (có thể là None nếu không có location)
+            # LƯU Ý: Chỉ tạo liên kết, KHÔNG tạo thiết bị mới trong bảng devices
             user_room_device = create_user_room_device_dict(user_id, device_id, room_id=room_id)
             user_room_devices_collection.insert_one(user_room_device)
             logger.info(f"Đã tạo liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
-            
-            # Không cần cập nhật room.device_ids nữa - chỉ sử dụng bảng user_room_devices
         
         # Giữ lại legacy user_devices_collection để tương thích
         existing_legacy_link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
@@ -128,6 +151,7 @@ def add_device(user_data: dict, device_id: str, device_name: str, location: str,
         )
 
     except Exception as e:
+        logger.error(f"Lỗi khi thêm thiết bị: {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
@@ -193,8 +217,8 @@ def get_all_device(user_data: dict):
         user_id = str(user_data["_id"])
 
         # Lấy danh sách device_ids từ bảng user_room_devices (cấu trúc mới)
-        linked_devices = user_room_devices_collection.find({"user_id": user_id})
-        device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
+        linked_devices = list(user_room_devices_collection.find({"user_id": user_id}))
+        device_ids = list(set([link["device_id"] for link in linked_devices if "device_id" in link and link["device_id"]]))  # Loại bỏ duplicate
 
         if not device_ids:
             return JSONResponse(
@@ -209,9 +233,51 @@ def get_all_device(user_data: dict):
         # Lấy detailed info từ devices_collection (sử dụng _id thay vì device_id)
         devices = list(devices_collection.find({"_id": {"$in": device_ids}}))
 
+        # Tạo mapping từ device_id -> room_id từ linked_devices
+        # Ưu tiên link có room_id (không phải None) nếu có nhiều links cho cùng một device
+        device_room_map = {}
+        for link in linked_devices:
+            device_id = link.get("device_id")
+            room_id = link.get("room_id")
+            if device_id:
+                # Nếu device chưa có trong map, thêm vào
+                if device_id not in device_room_map:
+                    device_room_map[device_id] = room_id
+                # Nếu đã có nhưng room_id hiện tại là None và link mới có room_id, cập nhật
+                elif device_room_map[device_id] is None and room_id is not None:
+                    device_room_map[device_id] = room_id
+
+        # Lấy thông tin room cho các room_id không phải None
+        room_ids = list(set([room_id for room_id in device_room_map.values() if room_id is not None]))
+        rooms_map = {}
+        if room_ids:
+            rooms = list(rooms_collection.find({"_id": {"$in": room_ids}}))
+            for room in rooms:
+                rooms_map[str(room["_id"])] = {
+                    "room_id": str(room["_id"]),
+                    "room_name": room.get("name", "")
+                }
+
+        # Thêm thông tin room vào mỗi device
         for device in devices:
             device["_id"] = str(device["_id"])
             device.pop("device_password", None)
+            
+            # Thêm thông tin room từ mapping
+            device_id = device["_id"]
+            room_id = device_room_map.get(device_id)
+            
+            if room_id is not None:
+                room_info = rooms_map.get(str(room_id))
+                if room_info:
+                    device["room_id"] = room_info["room_id"]
+                    device["room"] = room_info["room_name"]
+                else:
+                    device["room_id"] = None
+                    device["room"] = None
+            else:
+                device["room_id"] = None
+                device["room"] = None
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -223,6 +289,7 @@ def get_all_device(user_data: dict):
         )
 
     except Exception as e:
+        logger.error(f"Error in get_all_device: {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

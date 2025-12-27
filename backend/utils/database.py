@@ -23,6 +23,7 @@ sensors_collection = db["sensors"]
 actuators_collection = db["actuators"]
 sensor_data_collection = db["sensor_data"]
 notifications_collection = db["notifications"]
+refresh_tokens_collection = db["refresh_tokens"]  # Lưu trữ refresh tokens
 
 # Tạo index cho user_room_devices_collection để đảm bảo unique và query nhanh
 try:
@@ -30,6 +31,15 @@ try:
     user_room_devices_collection.create_index([("user_id", 1)])
     user_room_devices_collection.create_index([("room_id", 1)])
     user_room_devices_collection.create_index([("device_id", 1)])
+except Exception as e:
+    # Index có thể đã tồn tại, bỏ qua lỗi
+    pass
+
+# Tạo index cho refresh_tokens_collection
+try:
+    refresh_tokens_collection.create_index([("token", 1)], unique=True)
+    refresh_tokens_collection.create_index([("user_email", 1)])
+    refresh_tokens_collection.create_index([("expires_at", 1)], expireAfterSeconds=0)  # TTL index để tự động xóa token hết hạn
 except Exception as e:
     # Index có thể đã tồn tại, bỏ qua lỗi
     pass

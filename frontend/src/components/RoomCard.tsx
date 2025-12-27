@@ -10,7 +10,7 @@ import {
   DropdownMenuTrigger,
 } from './ui/dropdown-menu';
 import { roomDevicesCache } from '@/utils/roomDevicesCache';
-import { sensorDataAPI } from '@/services/api';
+import { sensorDataAPI, roomAPI } from '@/services/api';
 
 interface RoomCardProps {
   id?: string;
@@ -42,41 +42,67 @@ export function RoomCard({
   const [isLoading, setIsLoading] = useState(false);
   const [roomSensorsWithLatestData, setRoomSensorsWithLatestData] = useState<Sensor[]>([]);
   const lastRoomIdRef = useRef<string | null>(null);
+  const hasFetchedDetailsRef = useRef(false); // Track đã fetch detail chưa
   
-  // Mỗi RoomCard tự fetch và quản lý devices của nó (sử dụng cache để tránh duplicate calls)
+  // Mỗi RoomCard tự fetch detail khi render (nếu chưa có trong cache)
   useEffect(() => {
     const roomId = room._id;
     if (!roomId) {
       setRoomDevices([]);
       lastRoomIdRef.current = null;
+      hasFetchedDetailsRef.current = false;
       return;
     }
     
-    // Chỉ fetch nếu roomId thay đổi
-    if (lastRoomIdRef.current === roomId) {
-      // Nếu đã có trong cache, lấy từ cache
-      const cached = roomDevicesCache.getCachedDevices(roomId);
-      if (cached) {
-        setRoomDevices(cached);
-      }
+    // Nếu roomId thay đổi, reset flag
+    if (lastRoomIdRef.current !== roomId) {
+      lastRoomIdRef.current = roomId;
+      hasFetchedDetailsRef.current = false;
+    }
+    
+    // Kiểm tra cache trước
+    const cached = roomDevicesCache.getCachedDevices(roomId);
+    if (cached && cached.length > 0) {
+      setRoomDevices(cached);
       return;
     }
     
-    lastRoomIdRef.current = roomId;
-    
-    // Chỉ lấy từ cache, không fetch nữa
-    // Devices sẽ được set vào cache từ API room details khi Rooms component fetch hoặc khi click vào room
-    const getRoomDevices = () => {
-      const cached = roomDevicesCache.getCachedDevices(roomId);
-      if (cached) {
-        setRoomDevices(cached);
-      } else {
-        setRoomDevices([]);
-      }
-    };
-    
-    getRoomDevices();
-  }, [room._id]);
+    // Nếu chưa có cache và chưa fetch, tự fetch detail
+    if (!hasFetchedDetailsRef.current && isOnRoomsPage) {
+      hasFetchedDetailsRef.current = true;
+      setIsLoading(true);
+      
+      roomAPI.getRoomDetails(roomId)
+        .then((roomData) => {
+          // Cập nhật devices vào cache và state
+          if (roomData.devices && roomData.devices.length > 0) {
+            roomDevicesCache.setDevices(roomId, roomData.devices);
+            setRoomDevices(roomData.devices);
+            
+            // Dispatch event để các component khác biết
+            window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
+              detail: { devices: roomData.devices } 
+            }));
+          }
+          
+          // Dispatch event để cập nhật sensors
+          if (roomData.sensors) {
+            window.dispatchEvent(new CustomEvent(`room-sensors-updated-${roomId}`, { 
+              detail: { sensors: roomData.sensors } 
+            }));
+          }
+        })
+        .catch((error) => {
+          console.error(`Error fetching room details for ${roomId}:`, error);
+        })
+        .finally(() => {
+          setIsLoading(false);
+        });
+    } else {
+      // Nếu không có cache và không fetch, set empty
+      setRoomDevices([]);
+    }
+  }, [room._id, isOnRoomsPage]);
   
   // Refresh devices khi có update - sử dụng custom event
   const isRefreshingRef = useRef(false);
@@ -232,72 +258,9 @@ export function RoomCard({
     // Reset dữ liệu cũ khi roomSensors thay đổi
     setRoomSensorsWithLatestData([]);
 
-    const fetchLatestSensorData = async () => {
-      try {
-        // Lấy sensor_ids của phòng
-        const roomSensorIds = roomSensors.map(s => s._id).filter(Boolean);
-        if (roomSensorIds.length === 0) {
-          setRoomSensorsWithLatestData(roomSensors);
-          return;
-        }
-
-        // Fetch dữ liệu sensor gần nhất cho tất cả sensors của phòng
-        // Fetch cho từng sensor hoặc fetch tất cả rồi filter
-        // Tối ưu: fetch tất cả latest data rồi filter theo sensor_ids của phòng
-        const allLatestSensorData = await sensorDataAPI.getLatestSensorData();
-        
-        // Lọc chỉ lấy dữ liệu của sensors trong phòng
-        const roomSensorIdsSet = new Set(roomSensorIds);
-        const filteredSensorData = allLatestSensorData.filter((data: any) => 
-          data.sensor_id && roomSensorIdsSet.has(data.sensor_id)
-        );
-
-        // Tạo map sensor_id -> value và timestamp
-        const sensorValueMap = new Map<string, { value: number; timestamp: string }>();
-        filteredSensorData.forEach((data: any) => {
-          if (data.sensor_id && data.value !== undefined) {
-            sensorValueMap.set(data.sensor_id, {
-              value: data.value,
-              timestamp: data.timestamp || data.created_at || new Date().toISOString()
-            });
-          }
-        });
-
-        // Cập nhật sensors với dữ liệu mới nhất
-        const updatedSensors = roomSensors.map(sensor => {
-          const latestData = sensorValueMap.get(sensor._id);
-          if (latestData) {
-            return {
-              ...sensor,
-              value: latestData.value,
-              lastUpdate: latestData.timestamp ? new Date(latestData.timestamp) : new Date()
-            };
-          }
-          // Nếu không có dữ liệu mới, giữ nguyên sensor từ props
-          return sensor;
-        });
-
-        setRoomSensorsWithLatestData(updatedSensors);
-      } catch (error) {
-        console.error(`Error fetching latest sensor data for room ${room._id}:`, error);
-        // Fallback: sử dụng sensors từ props nếu có lỗi
-        setRoomSensorsWithLatestData(roomSensors);
-      }
-    };
-
-    // Fetch ngay lập tức
-    fetchLatestSensorData();
-
-    // Fetch định kỳ mỗi 30 giây khi ở trang /rooms (chỉ khi sensors chưa có value)
-    const interval = setInterval(() => {
-      // Kiểm tra lại xem sensors đã có value chưa
-      const stillNeedFetch = !roomSensors.some(s => s.value !== undefined && s.value !== null);
-      if (stillNeedFetch) {
-        fetchLatestSensorData();
-      }
-    }, 30000); // 30 giây
-
-    return () => clearInterval(interval);
+    // Bỏ fetch latest sensor data - chỉ sử dụng sensors từ props (đã có từ API room details)
+    // Sensors sẽ được cập nhật từ API room details khi cần
+    setRoomSensorsWithLatestData(roomSensors);
   }, [isOnRoomsPage, room._id, roomSensors, roomDevices]);
 
   // Sử dụng sensors với dữ liệu mới nhất nếu có, nếu không thì dùng từ props

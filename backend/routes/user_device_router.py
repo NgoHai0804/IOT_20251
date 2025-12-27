@@ -11,7 +11,8 @@ router = APIRouter(prefix="/user-device", tags=["UserDevice"])
 async def add_device_route(payload: AddDevice, current_user: dict = Depends(get_current_user)):
     """
     Thêm thiết bị cho người dùng
-    - device_id: ID thiết bị
+    - device_id: ID của thiết bị (bắt buộc)
+    - device_password: Mật khẩu thiết bị (tùy chọn - để trống nếu thiết bị không có mật khẩu)
     - device_name: Tên thiết bị
     - location: Phòng/vị trí thiết bị
     - note: Ghi chú (tùy chọn)
@@ -19,6 +20,7 @@ async def add_device_route(payload: AddDevice, current_user: dict = Depends(get_
     return user_device_controller.add_device(
         current_user,
         payload.device_id,
+        payload.device_password,
         payload.device_name,
         payload.location,
         payload.note
@@ -27,10 +29,6 @@ async def add_device_route(payload: AddDevice, current_user: dict = Depends(get_
 @router.post("/get-device", response_model=ResponseSchema)
 async def get_info_device_route(payload: Device, current_user: dict = Depends(get_current_user)):
     return user_device_controller.get_info_device(current_user, payload.device_id)
-
-@router.get("/get-all-device", response_model=ResponseSchema)
-async def get_all_device_route(current_user: dict = Depends(get_current_user)):
-    return user_device_controller.get_all_device(current_user)
 
 @router.post("/update", response_model=ResponseSchema)
 async def update_device_route(payload: UpdateDevice, current_user: dict = Depends(get_current_user)):
@@ -48,3 +46,11 @@ async def update_device_route(payload: UpdateDevice, current_user: dict = Depend
     update_dict = payload.dict(exclude_none=True)
     device_id = update_dict.pop("device_id")
     return user_device_controller.update_device(current_user, device_id, update_dict)
+
+@router.get("/get-all-device", response_model=ResponseSchema)
+async def get_all_device_route(current_user: dict = Depends(get_current_user)):
+    """
+    Lấy tất cả thiết bị của người dùng
+    Trả về danh sách thiết bị kèm thông tin room (nếu có)
+    """
+    return user_device_controller.get_all_device(current_user)

@@ -7,9 +7,9 @@ import { ChartsPanel } from '@/components/ChartsPanel';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Lightbulb, Fan, AirVent, Plug, Pencil } from 'lucide-react';
-import { sensorDataAPI } from '@/services/api';
+import { newDeviceAPI, sensorDataAPI } from '@/services/api';
 import { toast } from 'sonner';
-import type { DevicesProps, Device, Sensor, ChartDataPoint } from '@/types';
+import type { DevicesProps, Device, Sensor, Actuator, ChartDataPoint } from '@/types';
 
 const iconMap: Record<string, typeof Lightbulb> = {
   light: Lightbulb,
@@ -59,42 +59,113 @@ export function Devices({
   const [selectedSensorName, setSelectedSensorName] = useState<string | null>(null);
   const isFetchingSensorDataRef = useRef(false); // Flag để tránh gọi trùng lặp
   const [editingSensorThreshold, setEditingSensorThreshold] = useState<Sensor | null>(null);
+  const [localDeviceSensors, setLocalDeviceSensors] = useState<Sensor[]>([]);
+  const [localDeviceActuators, setLocalDeviceActuators] = useState<Actuator[]>([]);
+  const isFetchingDeviceDetailsRef = useRef(false);
   
-  // Fetch chart data khi ở trang /devices
-  useEffect(() => {
-    const fetchChartData = async () => {
-      try {
-        const trendsData = await sensorDataAPI.getSensorTrends({
-          device_id: selectedDeviceId || undefined,
-          hours: 24,
-          limit_per_type: 100,
-        });
-        
-        setSensorChartData({
-          temperature: trendsData.temperature || [],
-          humidity: trendsData.humidity || [],
-          energy: trendsData.energy || [],
-        });
-      } catch (error) {
-        console.error('Error fetching chart data:', error);
-        setSensorChartData({
-          temperature: [],
-          humidity: [],
-          energy: [],
-        });
+  // Function để fetch device details (tách ra để dùng lại)
+  const fetchDeviceDetails = useCallback(async () => {
+    if (!selectedDeviceId) {
+      return;
+    }
+    
+    // Tránh gọi trùng lặp
+    if (isFetchingDeviceDetailsRef.current) {
+      return;
+    }
+    
+    isFetchingDeviceDetailsRef.current = true;
+    
+    try {
+      // Gọi API detail để lấy device kèm sensors và actuators
+      const deviceDetail = await newDeviceAPI.getDeviceDetail(selectedDeviceId);
+      
+      const sensors = deviceDetail.sensors || [];
+      const actuators = deviceDetail.actuators || [];
+      
+      // Lấy giá trị mới nhất cho sensors nếu có sensors
+      if (sensors.length > 0) {
+        try {
+          const latestSensorData = await sensorDataAPI.getLatestSensorData({
+            device_id: selectedDeviceId,
+          });
+          
+          // Tạo map sensor_id -> value và timestamp
+          const sensorValueMap = new Map<string, { value: number; timestamp: string }>();
+          latestSensorData.forEach((data: any) => {
+            if (data.sensor_id && data.value !== undefined) {
+              sensorValueMap.set(data.sensor_id, {
+                value: data.value,
+                timestamp: data.timestamp || data.created_at || new Date().toISOString()
+              });
+            }
+          });
+          
+          // Merge giá trị vào sensors
+          const sensorsWithValues = sensors.map(sensor => {
+            const latestData = sensorValueMap.get(sensor._id || sensor.id);
+            if (latestData) {
+              return {
+                ...sensor,
+                value: latestData.value,
+                lastUpdate: latestData.timestamp ? new Date(latestData.timestamp) : new Date()
+              };
+            }
+            return sensor;
+          });
+          
+          setLocalDeviceSensors(sensorsWithValues);
+        } catch (error) {
+          console.error('Error fetching latest sensor values:', error);
+          // Nếu lỗi khi lấy latest values, vẫn set sensors nhưng không có value
+          setLocalDeviceSensors(sensors);
+        }
+      } else {
+        setLocalDeviceSensors([]);
       }
-    };
+      
+      setLocalDeviceActuators(actuators);
+      
+      // Không clear chart data để giữ lại bảng thống kê
+    } catch (error) {
+      console.error('Error fetching device details:', error);
+      // Không hiển thị toast khi refresh định kỳ để tránh spam
+      if (!isFetchingDeviceDetailsRef.current) {
+        toast.error('Không thể tải thông tin thiết bị', { duration: 1000 });
+      }
+      setLocalDeviceSensors([]);
+      setLocalDeviceActuators([]);
+    } finally {
+      isFetchingDeviceDetailsRef.current = false;
+    }
+  }, [selectedDeviceId]);
+
+  // Fetch device details khi selectedDeviceId thay đổi
+  useEffect(() => {
+    if (!selectedDeviceId) {
+      setLocalDeviceSensors([]);
+      setLocalDeviceActuators([]);
+      setSensorChartData({
+        temperature: [],
+        humidity: [],
+        energy: [],
+      });
+      return;
+    }
     
-    // Fetch ngay khi component mount hoặc selectedDeviceId thay đổi
-    fetchChartData();
+    // Fetch ngay lập tức
+    setLoadingSensorData(true);
+    fetchDeviceDetails().finally(() => {
+      setLoadingSensorData(false);
+    });
     
-    // Fetch định kỳ mỗi 30 giây
+    // Fetch định kỳ mỗi 10 giây
     const interval = setInterval(() => {
-      fetchChartData();
-    }, 30000);
+      fetchDeviceDetails();
+    }, 10000); // 10 giây
     
     return () => clearInterval(interval);
-  }, [selectedDeviceId]);
+  }, [selectedDeviceId, fetchDeviceDetails]);
   
   // Tự động chọn thiết bị khi điều hướng từ trang Rooms
   useEffect(() => {
@@ -116,16 +187,72 @@ export function Devices({
     ? devices.find(d => (d._id || d.id) === selectedDeviceId) || null
     : null;
 
-  // Ghi nhớ danh sách sensors và actuators cho thiết bị được chọn
+  // Sử dụng local sensors và actuators từ device detail API
   const deviceSensorsList = useMemo(() => {
-    if (!selectedDeviceId || !sensors) return [];
-    return sensors.filter(s => (s.device_id || s.deviceId) === selectedDeviceId);
-  }, [sensors, selectedDeviceId]);
+    return localDeviceSensors;
+  }, [localDeviceSensors]);
 
   const deviceActuatorsList = useMemo(() => {
-    if (!selectedDeviceId || !actuators) return [];
-    return actuators.filter(a => (a.device_id || a.deviceId) === selectedDeviceId);
-  }, [actuators, selectedDeviceId]);
+    return localDeviceActuators;
+  }, [localDeviceActuators]);
+
+  // Wrapper để cập nhật local state sau khi toggle sensor
+  const handleSensorToggle = useCallback(async (sensorId: string, enabled: boolean) => {
+    if (!onSensorEnableToggle) return;
+    
+    // Optimistic update: cập nhật ngay lập tức
+    setLocalDeviceSensors(prevSensors =>
+      prevSensors.map(sensor =>
+        (sensor._id || sensor.id) === sensorId
+          ? { ...sensor, enabled }
+          : sensor
+      )
+    );
+    
+    try {
+      await onSensorEnableToggle(sensorId, enabled);
+      // API đã thành công, state đã được cập nhật ở trên
+    } catch (error) {
+      // Rollback nếu API thất bại
+      setLocalDeviceSensors(prevSensors =>
+        prevSensors.map(sensor =>
+          (sensor._id || sensor.id) === sensorId
+            ? { ...sensor, enabled: !enabled }
+            : sensor
+        )
+      );
+      throw error;
+    }
+  }, [onSensorEnableToggle]);
+
+  // Wrapper để cập nhật local state sau khi control actuator
+  const handleActuatorToggle = useCallback(async (actuatorId: string, state: boolean) => {
+    if (!onActuatorControl) return;
+    
+    // Optimistic update: cập nhật ngay lập tức
+    setLocalDeviceActuators(prevActuators =>
+      prevActuators.map(actuator =>
+        (actuator._id || actuator.id) === actuatorId
+          ? { ...actuator, state }
+          : actuator
+      )
+    );
+    
+    try {
+      await onActuatorControl(actuatorId, state);
+      // API đã thành công, state đã được cập nhật ở trên
+    } catch (error) {
+      // Rollback nếu API thất bại
+      setLocalDeviceActuators(prevActuators =>
+        prevActuators.map(actuator =>
+          (actuator._id || actuator.id) === actuatorId
+            ? { ...actuator, state: !state }
+            : actuator
+        )
+      );
+      throw error;
+    }
+  }, [onActuatorControl]);
 
   // Ghi nhớ metadata thiết bị để tránh tính toán lại trong map
   const deviceMetadata = useMemo(() => {
@@ -692,7 +819,7 @@ export function Devices({
                                         checked={sensor.enabled}
                                         onCheckedChange={(checked) => {
                                           if (sensorId) {
-                                            onSensorEnableToggle(sensorId, checked);
+                                            handleSensorToggle(sensorId, checked);
                                           }
                                         }}
                                         onClick={(e) => e.stopPropagation()}
@@ -747,7 +874,7 @@ export function Devices({
                                     onCheckedChange={(checked) => {
                                       const actuatorId = actuator._id || actuator.id;
                                       if (actuatorId) {
-                                        onActuatorControl(actuatorId, checked);
+                                        handleActuatorToggle(actuatorId, checked);
                                       }
                                     }}
                                     className="data-[state=checked]:bg-green-500 h-5 w-9 flex-shrink-0"

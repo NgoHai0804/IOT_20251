@@ -30,6 +30,20 @@ function App() {
     }
   }, []);
 
+  // Lắng nghe event khi token không hợp lệ
+  useEffect(() => {
+    const handleInvalidToken = () => {
+      setIsAuthenticated(false);
+      setUsername('');
+    };
+
+    window.addEventListener('auth:invalid-token', handleInvalidToken);
+    
+    return () => {
+      window.removeEventListener('auth:invalid-token', handleInvalidToken);
+    };
+  }, []);
+
   const handleLogin = (user: string) => {
     setUsername(user);
     setIsAuthenticated(true);
@@ -44,8 +58,8 @@ function App() {
     }
   };
 
-  const handleLogout = () => {
-    authAPI.logout();
+  const handleLogout = async () => {
+    await authAPI.logout();
     setIsAuthenticated(false);
     setUsername('');
   };

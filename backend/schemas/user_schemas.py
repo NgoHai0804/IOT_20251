@@ -26,3 +26,6 @@ class UserLogin(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str]
     phone: Optional[str]
+
+class RefreshTokenRequest(BaseModel):
+    refresh_token: str
