@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -17,40 +17,100 @@ import {
   SelectValue,
 } from './ui/select';
 import { Button } from './ui/button';
-import { deviceAPI } from '@/services/api';
+import { deviceAPI, roomAPI } from '@/services/api';
 import { toast } from 'sonner';
 import type { Device, EditDeviceDialogProps } from '@/types';
 
 export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDialogProps) {
   const [open, setOpen] = useState(true);
   const [loading, setLoading] = useState(false);
-  
-  // Tìm room chứa device từ room.devices (từ API) thay vì room.device_ids
-  const deviceId = device._id || device.id;
-  const foundRoom = Array.isArray(rooms) ? rooms.find((r: any) => {
-    if (typeof r === 'string') return false;
-    // Kiểm tra nếu room có devices và device này có trong đó
-    if (r.devices && Array.isArray(r.devices)) {
-      return r.devices.some((d: Device) => (d._id || d.id) === deviceId);
-    }
-    return false;
-  }) : null;
-  
-  const deviceRoomId = foundRoom ? (typeof foundRoom === 'object' ? foundRoom._id : foundRoom) : '';
-  const deviceRoomName = foundRoom ? (typeof foundRoom === 'object' ? foundRoom.name : foundRoom) : '';
+  const [loadingRoom, setLoadingRoom] = useState(true);
   
   // Khởi tạo form với giá trị ban đầu từ device
   const [deviceName, setDeviceName] = useState(device.name);
   const [devicePassword, setDevicePassword] = useState('');
-  const [deviceRoom, setDeviceRoom] = useState(deviceRoomId);
+  const [deviceRoom, setDeviceRoom] = useState('');
   const [customRoom, setCustomRoom] = useState('');
+  const [showCustomRoom, setShowCustomRoom] = useState(false);
+  const [currentRoomName, setCurrentRoomName] = useState<string>('');
+  const [originalRoomId, setOriginalRoomId] = useState<string>(''); // Track original room ID
   
-  // Check if device room exists in rooms list
-  const roomExists = !!foundRoom;
-  const [showCustomRoom, setShowCustomRoom] = useState(!roomExists);
-  
-  // Không có useEffect để reset form - giữ nguyên input của user khi đang chỉnh sửa
-  // Form chỉ được khởi tạo một lần khi component mount
+  // Tìm room chứa device này
+  useEffect(() => {
+    const findCurrentRoom = async () => {
+      const deviceId = device._id || device.id;
+      setLoadingRoom(true);
+      
+      try {
+        // Tìm trong rooms data trước
+        const foundRoom = Array.isArray(rooms) ? rooms.find((r: any) => {
+          if (typeof r === 'string') return false;
+          // Kiểm tra nếu room có devices và device này có trong đó
+          if (r.devices && Array.isArray(r.devices)) {
+            return r.devices.some((d: Device) => (d._id || d.id) === deviceId);
+          }
+          return false;
+        }) : null;
+        
+        if (foundRoom && typeof foundRoom === 'object') {
+          setDeviceRoom(foundRoom._id);
+          setCurrentRoomName(foundRoom.name);
+          setOriginalRoomId(foundRoom._id); // Set original room ID
+          setShowCustomRoom(false);
+        } else {
+          // Nếu không tìm thấy trong rooms data, gọi API để tìm
+          const roomData = await roomAPI.findDeviceRoom(deviceId);
+          if (roomData) {
+            setDeviceRoom(roomData._id);
+            setCurrentRoomName(roomData.name);
+            setOriginalRoomId(roomData._id); // Set original room ID
+            setShowCustomRoom(false);
+          } else {
+            // Fallback: sử dụng device.location nếu có
+            if (device.location) {
+              const roomByLocation = Array.isArray(rooms) ? rooms.find((r: any) => {
+                if (typeof r === 'string') return r === device.location;
+                return r.name === device.location;
+              }) : null;
+              
+              if (roomByLocation && typeof roomByLocation === 'object') {
+                setDeviceRoom(roomByLocation._id);
+                setCurrentRoomName(roomByLocation.name);
+                setOriginalRoomId(roomByLocation._id); // Set original room ID
+                setShowCustomRoom(false);
+              } else {
+                // Device có location nhưng không tìm thấy room tương ứng
+                setCustomRoom(device.location);
+                setDeviceRoom(device.location);
+                setCurrentRoomName(device.location);
+                setOriginalRoomId(''); // No original room ID
+                setShowCustomRoom(true);
+              }
+            } else {
+              // Device không có room
+              setDeviceRoom('');
+              setCurrentRoomName('');
+              setOriginalRoomId(''); // No original room ID
+              setShowCustomRoom(false);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error finding device room:', error);
+        // Fallback to device.location
+        if (device.location) {
+          setCustomRoom(device.location);
+          setDeviceRoom(device.location);
+          setCurrentRoomName(device.location);
+          setShowCustomRoom(true);
+        }
+      } finally {
+        setLoadingRoom(false);
+      }
+    };
+    
+    findCurrentRoom();
+  }, [device, rooms]);
 
   const handleRoomChange = (value: string) => {
     if (value === 'custom') {
@@ -97,7 +157,7 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
       await deviceAPI.updateDevice(deviceIdToUpdate, updateData);
       
       // Nếu có thay đổi room, cập nhật qua API mới
-      if (deviceRoom && deviceRoom !== 'none' && deviceRoom !== deviceRoomId) {
+      if (deviceRoom && deviceRoom !== 'none' && deviceRoom !== originalRoomId) {
         // Tìm room_id từ room name hoặc room_id
         const targetRoom = Array.isArray(rooms) ? rooms.find((r: any) => {
           if (typeof r === 'string') return r === deviceRoom;
@@ -110,9 +170,9 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
         }
       } else if (!deviceRoom || deviceRoom === 'none') {
         // Xóa device khỏi room nếu không chọn phòng
-        if (deviceRoomId) {
+        if (originalRoomId) {
           const { roomAPI } = await import('@/services/api');
-          await roomAPI.removeDeviceFromRoom(deviceRoomId, deviceIdToUpdate);
+          await roomAPI.removeDeviceFromRoom(originalRoomId, deviceIdToUpdate);
         }
       }
       
@@ -149,6 +209,19 @@ export function EditDeviceDialog({ device, rooms, onUpdateDevice }: EditDeviceDi
           <DialogTitle>Chỉnh sửa thiết bị</DialogTitle>
           <DialogDescription className="text-slate-400">
             Cập nhật thông tin thiết bị của bạn
+            {loadingRoom ? (
+              <span className="block mt-1 text-yellow-400 text-sm">
+                Đang tìm phòng hiện tại...
+              </span>
+            ) : currentRoomName ? (
+              <span className="block mt-1 text-cyan-400 text-sm">
+                Hiện tại đang ở: {currentRoomName}
+              </span>
+            ) : (
+              <span className="block mt-1 text-slate-500 text-sm">
+                Chưa được gán vào phòng nào
+              </span>
+            )}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit}>

@@ -4,15 +4,14 @@ import { AddRoomDialog } from '@/components/AddRoomDialog';
 import { EditRoomDialog } from '@/components/EditRoomDialog';
 import { DeleteRoomDialog } from '@/components/DeleteRoomDialog';
 import { RoomCard } from '@/components/RoomCard';
-import { SensorCard } from '@/components/SensorCard';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Home, Plus, Pencil, Trash2, Power, Eye, Lightbulb, Fan, AirVent, Plug, ExternalLink } from 'lucide-react';
-import { deviceAPI, roomAPI } from '@/services/api';
+import { Home, Plus, Lightbulb, Fan, AirVent, Plug, ExternalLink } from 'lucide-react';
+import { roomAPI } from '@/services/api';
 import { toast } from 'sonner';
 import { roomDevicesCache } from '@/utils/roomDevicesCache';
-import type { RoomsProps, Device, Room, Sensor, Actuator } from '@/types';
+import type { RoomsProps, Device, Room, Sensor } from '@/types';
 
 export function Rooms({ 
   devices, 
@@ -24,7 +23,6 @@ export function Rooms({
   actuators,
   onUpdateRoom,
   onDeviceToggle,
-  onActuatorControl,
   onRoomControl,
 }: RoomsProps) {
   const navigate = useNavigate();
@@ -34,11 +32,30 @@ export function Rooms({
   const [showAddDeviceDialog, setShowAddDeviceDialog] = useState(false);
   const [addingDevice, setAddingDevice] = useState(false);
   const [roomsWithData, setRoomsWithData] = useState<Room[]>([]);
-  const [isLoadingRoomsData, setIsLoadingRoomsData] = useState(false);
   const fetchingRoomRef = useRef<Set<string>>(new Set()); // Track rooms đang được fetch để tránh duplicate calls
   const hasFetchedRoomsRef = useRef(false); // Track đã fetch rooms chưa
+  
+  // Lấy devices của selected room từ cache (RoomCard đã tự fetch và cache)
+  // Rooms component CHỈ đọc từ cache, KHÔNG fetch mới để tránh duplicate calls
+  const [roomDevices, setRoomDevices] = useState<Device[]>([]);
+  const [lastUpdateTime, setLastUpdateTime] = useState<number>(0); // Track last update time
+  
   // Local state để track enabled state của devices cho optimistic update
   const [localDeviceEnabled, setLocalDeviceEnabled] = useState<Map<string, boolean>>(new Map());
+  
+  // Sync local device enabled state with roomDevices when they change
+  useEffect(() => {
+    if (roomDevices.length > 0) {
+      const newLocalState = new Map<string, boolean>();
+      roomDevices.forEach(device => {
+        const deviceId = device._id;
+        if (deviceId) {
+          newLocalState.set(deviceId, device.enabled !== undefined ? device.enabled : false);
+        }
+      });
+      setLocalDeviceEnabled(newLocalState);
+    }
+  }, [roomDevices, lastUpdateTime]); // Include lastUpdateTime to force sync
   
   // LUÔN gọi API /rooms/ khi vào trang Rooms
   useEffect(() => {
@@ -48,7 +65,6 @@ export function Rooms({
       hasFetchedRoomsRef.current = true;
       
       try {
-        setIsLoadingRoomsData(true);
         // Gọi API để lấy danh sách phòng
         const roomsData = await roomAPI.getAllRooms();
         
@@ -62,8 +78,6 @@ export function Rooms({
       } catch (error) {
         console.error('Error fetching rooms on mount:', error);
         toast.error('Không thể tải danh sách phòng', { duration: 1000 });
-      } finally {
-        setIsLoadingRoomsData(false);
       }
     };
     
@@ -109,9 +123,6 @@ export function Rooms({
     return [];
   }, [roomsProp, roomsWithData]);
 
-  // Lấy devices của selected room từ cache (RoomCard đã tự fetch và cache)
-  // Rooms component CHỈ đọc từ cache, KHÔNG fetch mới để tránh duplicate calls
-  const [roomDevices, setRoomDevices] = useState<Device[]>([]);
   
   useEffect(() => {
     if (!selectedRoom) {
@@ -124,7 +135,8 @@ export function Rooms({
     const getRoomDevices = () => {
       const cached = roomDevicesCache.getCachedDevices(selectedRoom);
       if (cached) {
-        setRoomDevices(cached);
+        setRoomDevices([...cached]); // Always create new array to ensure re-render
+        setLastUpdateTime(Date.now());
       } else {
         // Nếu chưa có cache, set empty array và để RoomCard fetch xong sẽ update qua event
         setRoomDevices([]);
@@ -139,43 +151,52 @@ export function Rooms({
       // Khi có update, lấy lại từ cache hoặc từ event detail
       const devices = e.detail?.devices || roomDevicesCache.getCachedDevices(selectedRoom);
       if (devices) {
-        setRoomDevices(devices);
+        setRoomDevices([...devices]); // Create new array to force re-render
+        setLastUpdateTime(Date.now());
       }
     };
     window.addEventListener(eventName, handleUpdate);
+    
+    // Also listen for room control events to update immediately
+    const roomControlEventName = `room-control-completed-${selectedRoom}`;
+    const handleRoomControlUpdate = () => {
+      // Refresh devices after room control
+      setTimeout(() => {
+        const cached = roomDevicesCache.getCachedDevices(selectedRoom);
+        if (cached) {
+          setRoomDevices([...cached]); // Force re-render with new array
+          setLastUpdateTime(Date.now());
+        }
+      }, 100);
+    };
+    window.addEventListener(roomControlEventName, handleRoomControlUpdate);
+    
+    // Listen for individual device updates to refresh room details
+    const deviceUpdateEventName = `device-updated-${selectedRoom}`;
+    const handleDeviceUpdate = () => {
+      // When individual device is updated, refresh room details
+      setTimeout(() => {
+        window.dispatchEvent(new CustomEvent(`room-update-${selectedRoom}`));
+      }, 200);
+    };
+    window.addEventListener(deviceUpdateEventName, handleDeviceUpdate);
     
     // Poll cache một lần nữa sau 100ms để catch data nếu RoomCard đã fetch xong
     const timeoutId = setTimeout(() => {
       const cached = roomDevicesCache.getCachedDevices(selectedRoom);
       if (cached && cached.length > 0) {
-        setRoomDevices(cached);
+        setRoomDevices([...cached]); // Force re-render with new array
+        setLastUpdateTime(Date.now());
       }
     }, 100);
     
     return () => {
       window.removeEventListener(eventName, handleUpdate);
+      window.removeEventListener(roomControlEventName, handleRoomControlUpdate);
+      window.removeEventListener(deviceUpdateEventName, handleDeviceUpdate);
       clearTimeout(timeoutId);
     };
   }, [selectedRoom]);
-
-  // Filter sensors by selected room (through devices)
-  // Ưu tiên lấy từ roomsWithData nếu có, nếu không thì từ props
-  const roomSensors = useMemo(() => {
-    if (!selectedRoom) return [];
-    
-    // Nếu có roomsWithData, lấy sensors từ room đó
-    if (roomsWithData.length > 0) {
-      const selectedRoomData = roomsWithData.find(r => r._id === selectedRoom);
-      if (selectedRoomData && selectedRoomData.sensors) {
-        return selectedRoomData.sensors;
-      }
-    }
-    
-    // Fallback: lấy từ props
-    if (!sensors) return [];
-    const roomDeviceIds = roomDevices.map(d => d._id || d.id);
-    return sensors.filter(s => roomDeviceIds.includes(s.device_id));
-  }, [sensors, selectedRoom, roomDevices, roomsWithData]);
 
   // Tạo map roomId -> sensors từ roomsWithData để truyền cho RoomCard
   const roomSensorsMap = useMemo(() => {
@@ -201,26 +222,6 @@ export function Rooms({
       });
     }
   }, [roomsWithData]);
-
-  // Get actuators for selected room
-  // Ưu tiên lấy từ roomsWithData nếu có, nếu không thì từ props
-  const roomActuators = useMemo(() => {
-    if (!selectedRoom) return [];
-    
-    // Nếu có roomsWithData, lấy actuators từ room đó
-    if (roomsWithData.length > 0) {
-      const selectedRoomData = roomsWithData.find(r => r._id === selectedRoom);
-      if (selectedRoomData && selectedRoomData.actuators) {
-        return selectedRoomData.actuators;
-      }
-    }
-    
-    // Fallback: lấy từ props
-    const roomDeviceIds = roomDevices.map(d => d._id || d.id);
-    // Filter actuators by room devices
-    if (!actuators) return [];
-    return actuators.filter(a => roomDeviceIds.includes(a.device_id));
-  }, [selectedRoom, roomDevices, actuators, roomsWithData]);
 
   // Get devices without room (query từ API cho mỗi room và lấy devices không có trong bất kỳ room nào)
   const [devicesWithoutRoom, setDevicesWithoutRoom] = useState<Device[]>([]);
@@ -253,14 +254,14 @@ export function Rooms({
         }
         
         roomDevs.forEach((d: Device) => {
-          const deviceId = d._id || d.id;
+          const deviceId = d._id;
           if (deviceId) allDeviceIdsInRooms.add(deviceId);
         });
       }
       
       // Lọc devices không có trong bất kỳ room nào
       const devicesNotInRooms = devices.filter(d => {
-        const deviceId = d._id || d.id;
+        const deviceId = d._id;
         return deviceId && !allDeviceIdsInRooms.has(deviceId);
       });
       setDevicesWithoutRoom(devicesNotInRooms);
@@ -279,7 +280,6 @@ export function Rooms({
     const checkMenuAndSetWidth = () => {
       const hasMenu = document.querySelector('#menu') !== null || document.querySelector('aside') !== null; // Kiểm tra menu
       const roomListDiv = document.getElementById('room-list-container');
-      const deviceListDiv = document.getElementById('device-list-container');
       const emptyStateDiv = document.getElementById('empty-state-container');
       const noDeviceDiv = document.getElementById('no-device-container');
       
@@ -492,11 +492,11 @@ export function Rooms({
     if (!onDeviceToggle) return;
     
     // Lấy enabled state hiện tại từ props hoặc local state
-    const device = roomDevices.find(d => (d._id || d.id) === deviceId) || 
-                   devicesWithoutRoom.find(d => (d._id || d.id) === deviceId) ||
-                   devices.find(d => (d._id || d.id) === deviceId);
+    const device = roomDevices.find(d => d._id === deviceId) || 
+                   devicesWithoutRoom.find(d => d._id === deviceId) ||
+                   devices.find(d => d._id === deviceId);
     const currentEnabled = localDeviceEnabled.get(deviceId) ?? 
-                          (device?.enabled !== undefined ? device.enabled : (device?.status === 'on'));
+                          (device?.enabled !== undefined ? device.enabled : false);
     const newEnabled = !currentEnabled;
     
     // Optimistic update: cập nhật ngay lập tức
@@ -508,6 +508,20 @@ export function Rooms({
     
     try {
       await onDeviceToggle(deviceId);
+      
+      // After successful toggle, refresh room details to get updated state
+      if (selectedRoom) {
+        // Dispatch device update event first
+        window.dispatchEvent(new CustomEvent(`device-updated-${selectedRoom}`, { 
+          detail: { deviceId, enabled: newEnabled } 
+        }));
+        
+        // Then trigger room details refresh with a delay
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent(`room-update-${selectedRoom}`));
+        }, 300); // Small delay to allow backend to process
+      }
+      
       // API đã thành công, state đã được cập nhật ở trên
     } catch (error) {
       // Rollback nếu API thất bại
@@ -518,7 +532,7 @@ export function Rooms({
       });
       throw error;
     }
-  }, [onDeviceToggle, roomDevices, devicesWithoutRoom, devices, localDeviceEnabled]);
+  }, [onDeviceToggle, roomDevices, devicesWithoutRoom, devices, localDeviceEnabled, selectedRoom]);
 
   // Sync local state với props khi devices thay đổi
   // Chỉ sync cho các device mới hoặc device không có trong local state
@@ -527,8 +541,8 @@ export function Rooms({
     setLocalDeviceEnabled(prev => {
       const newMap = new Map(prev);
       allDevices.forEach(device => {
-        const deviceId = device._id || device.id;
-        const enabled = device.enabled !== undefined ? device.enabled : (device.status === 'on');
+        const deviceId = device._id;
+        const enabled = device.enabled !== undefined ? device.enabled : false;
         // Chỉ sync nếu device chưa có trong local state (để giữ optimistic update)
         if (!newMap.has(deviceId)) {
           newMap.set(deviceId, enabled);
@@ -546,18 +560,18 @@ export function Rooms({
     <div className="h-full flex flex-col overflow-hidden font-sans min-h-screen w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden' }}>
       <div className="relative z-10 h-full flex flex-col overflow-hidden w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden', minWidth: 0 }}>
         {/* Header */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-shrink-0 mb-6 px-4 md:px-6 lg:px-8 gap-4 w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden', minWidth: 0 }}>
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between flex-shrink-0 mb-4 px-4 md:px-6 lg:px-8 gap-3 w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', overflowX: 'hidden', minWidth: 0 }}>
           <div>
-            <h2 className="text-white text-2xl sm:text-3xl font-bold mb-2 tracking-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>
+            <h2 className="text-white text-xl sm:text-2xl font-bold mb-1 tracking-tight" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>
               Quản Lý Phòng
             </h2>
-            <p className="text-cyan-200/70 text-sm sm:text-base font-medium">Quản lý phòng và thiết bị trong từng phòng</p>
+            <p className="text-cyan-200/70 text-sm font-medium">Quản lý phòng và thiết bị trong từng phòng</p>
           </div>
           <Button
             onClick={() => setShowAddRoom(true)}
-            className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold px-4 sm:px-6 h-10 sm:h-11 text-sm sm:text-base w-full sm:w-auto"
+            className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold px-3 sm:px-4 h-9 sm:h-10 text-sm w-full sm:w-auto"
           >
-            <Plus className="w-4 h-4 sm:w-5 sm:h-5" />
+            <Plus className="w-4 h-4" />
             <span className="hidden sm:inline">Thêm Phòng Mới</span>
             <span className="sm:hidden">Thêm Phòng</span>
           </Button>
@@ -566,11 +580,11 @@ export function Rooms({
         {/* Room List Container - Horizontal Scrollable */}
         <div 
           id="room-list-container"
-          className="box-border min-w-0 px-4 md:px-6 lg:px-8 mb-4" 
+          className="box-border min-w-0 px-4 md:px-6 lg:px-8 mb-3" 
           style={{ maxWidth: '100%', boxSizing: 'border-box', minWidth: 0 }}
         >
           <div 
-            className="w-full backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-xl shadow-2xl p-3 sm:p-4 overflow-x-auto overflow-y-hidden" 
+            className="w-full backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-xl shadow-2xl p-2 sm:p-3 overflow-x-auto overflow-y-hidden" 
             id="room-list-scroll-container"
             style={{ 
               width: '100%', 
@@ -580,13 +594,6 @@ export function Rooms({
               scrollbarWidth: 'thin',
               scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)',
               WebkitOverflowScrolling: 'touch',
-            }}
-            onWheel={(e) => {
-              const container = e.currentTarget;
-              if (e.deltaY !== 0) {
-                container.scrollLeft += e.deltaY;
-                e.preventDefault();
-              }
             }}
           >
             <style>{`
@@ -626,7 +633,7 @@ export function Rooms({
                 display: none;
               }
             `}</style>
-            <div className="inline-flex gap-3 sm:gap-4 touch-pan-x" style={{ width: 'max-content', paddingBottom: '12px' }}>
+            <div className="inline-flex gap-2 sm:gap-3 touch-pan-x" style={{ width: 'max-content', paddingBottom: '8px' }}>
               {rooms.map((room) => {
                 const isSelected = selectedRoom === room._id;
                 
@@ -720,27 +727,27 @@ export function Rooms({
         {/* Selected Room Devices List */}
         {selectedRoom && (
           <div className="flex-1 flex flex-col min-h-0 px-4 md:px-6 lg:px-8 w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', minWidth: 0, overflowX: 'hidden', overflowY: 'visible' }}>
-            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 flex-shrink-0 gap-3 w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-2 flex-shrink-0 gap-2 w-full" style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box', minWidth: 0 }}>
               <div>
-                <h3 className="text-white text-xl sm:text-2xl font-bold tracking-tight mb-1" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
+                <h3 className="text-white text-base sm:text-lg font-bold tracking-tight mb-0" style={{ textShadow: '0 2px 8px rgba(0,0,0,0.3)' }}>
                   Các Thiết Bị Trong Phòng
                 </h3>
-                <p className="text-cyan-200/60 text-sm">
+                <p className="text-cyan-200/60 text-xs">
                   {selectedRoomName && `Phòng: ${selectedRoomName}`}
                 </p>
               </div>
               <Button
                 onClick={() => setShowAddDeviceDialog(true)}
-                className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold text-xs sm:text-sm h-9 sm:h-10 px-3 sm:px-4 w-full sm:w-auto"
+                className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-1.5 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold text-xs h-7 px-2.5 w-full sm:w-auto"
               >
-                <Plus className="w-4 h-4" />
+                <Plus className="w-3 h-3" />
                 Thêm thiết bị
               </Button>
             </div>
             
             {roomDevices.length > 0 ? (
             <div
-              className="box-border min-w-0 backdrop-blur-xl border rounded-2xl shadow-2xl p-4 sm:p-6 w-full"
+              className="box-border min-w-0 backdrop-blur-xl border rounded-2xl shadow-2xl p-2.5 sm:p-3 w-full"
               id="device-list-container"
               style={{
                 width: '100%',
@@ -793,13 +800,13 @@ export function Rooms({
                   display: none;
                 }
               `}</style>
-              <div className="flex flex-col gap-4 sm:gap-5">
+              <div className="flex flex-col gap-2.5" key={`devices-${selectedRoom}-${lastUpdateTime}`}>
                 {roomDevices.map((device) => {
-                  const deviceId = device._id || device.id;
+                  const deviceId = device._id;
                   // Ưu tiên local state (optimistic update), fallback về props
                   const deviceEnabled = localDeviceEnabled.has(deviceId) 
                     ? localDeviceEnabled.get(deviceId)!
-                    : (device.enabled !== undefined ? device.enabled : (device.status === 'on'));
+                    : (device.enabled !== undefined ? device.enabled : false);
                   
                   // Icon mapping
                   const iconMap: Record<string, typeof Lightbulb> = {
@@ -813,87 +820,103 @@ export function Rooms({
                   return (
                     <div
                       key={deviceId}
-                      className={`box-border rounded-xl backdrop-blur-xl border p-3 sm:p-4 transition-all duration-300 shadow-md hover:shadow-xl w-full ${
+                      className={`box-border rounded-xl backdrop-blur-xl border p-2 sm:p-2.5 transition-all duration-300 shadow-md hover:shadow-xl w-full ${
                         deviceEnabled
                           ? 'border-green-400/50 bg-gradient-to-br from-green-500/20 to-emerald-500/20'
                           : 'border-slate-700/80 bg-slate-800/60 hover:border-cyan-500/40 hover:bg-slate-800/80'
                       }`}
                       style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
                     >
-                      <div className="flex items-start justify-between mb-4">
-                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className="flex items-start justify-between mb-1">
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
                           {/* Icon */}
                           <div 
-                            className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg transition-all ${
+                            className={`w-7 h-7 sm:w-8 sm:h-8 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg transition-all ${
                               deviceEnabled 
                                 ? 'bg-gradient-to-br from-green-500/40 to-emerald-500/40 border-2 border-green-400/50' 
                                 : 'bg-slate-700/50 border-2 border-slate-600/50'
                             }`}
                           >
-                            <Icon className={`w-5 h-5 sm:w-6 sm:h-6 ${deviceEnabled ? 'text-green-300' : 'text-slate-400'}`} />
+                            <Icon className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${deviceEnabled ? 'text-green-300' : 'text-slate-400'}`} />
                           </div>
                           
                           {/* Name + Type */}
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-bold text-sm sm:text-base md:text-lg truncate">
+                            <h4 className="text-white font-bold text-xs sm:text-sm truncate">
                               {device.name}
                             </h4>
-                            <p className="text-cyan-200/70 text-xs sm:text-sm truncate capitalize font-medium">
+                            <p className="text-cyan-200/70 text-xs truncate capitalize font-medium">
                               {device.type}
                             </p>
                           </div>
                         </div>
                         
-                        {/* Bật/Tắt */}
-                        {onDeviceToggle && (
-                          <Switch
-                            checked={deviceEnabled}
-                            onCheckedChange={(checked) => {
-                              handleDeviceToggle(deviceId);
-                            }}
+                        {/* Controls - Switch and Detail Button */}
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {/* Chi tiết Button */}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 w-6 p-0 text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200"
                             onClick={(e) => {
                               e.stopPropagation();
+                              handleViewDeviceDetails(deviceId);
                             }}
-                            className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 flex-shrink-0"
-                          />
-                        )}
+                            title="Chi tiết thiết bị"
+                          >
+                            <ExternalLink className="w-3 h-3" />
+                          </Button>
+                          
+                          {/* Bật/Tắt Switch */}
+                          {onDeviceToggle && (
+                            <Switch
+                              checked={deviceEnabled}
+                              onCheckedChange={() => {
+                                handleDeviceToggle(deviceId);
+                              }}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                              }}
+                              className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 scale-75"
+                            />
+                          )}
+                        </div>
                       </div>
-                      
-                      {/* Chi tiết */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="w-full h-8 sm:h-9 text-xs sm:text-sm text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 font-semibold px-2 sm:px-3"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleViewDeviceDetails(deviceId);
-                        }}
-                      >
-                        <ExternalLink className="w-3 h-3 sm:w-4 sm:h-4 mr-1 sm:mr-2" />
-                        <span className="hidden sm:inline">Chi tiết</span>
-                      </Button>
                     </div>
                   );
                 })}
               </div>
             </div>
             ) : (
-              <div 
+              <div
+                className="box-border min-w-0 backdrop-blur-xl border rounded-2xl shadow-2xl p-2.5 sm:p-3 w-full"
                 id="no-device-container"
-                className="backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-10 sm:p-12 shadow-2xl text-center"
+                style={{
+                  width: '100%',
+                  maxWidth: '100%',
+                  boxSizing: 'border-box',
+                  minWidth: 0,
+                  overflowY: 'auto',
+                  overflowX: 'hidden',
+                  scrollbarWidth: 'thin',
+                  scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)',
+                  WebkitOverflowScrolling: 'touch',
+                }}
               >
-                <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-cyan-500/10 flex items-center justify-center border-2 border-cyan-500/30">
-                  <Plug className="w-10 h-10 text-cyan-400/70" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
+                <div className="text-center py-8">
+                  <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-cyan-500/10 flex items-center justify-center border-2 border-cyan-500/30">
+                    <Plug className="w-8 h-8 text-cyan-400/70" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
+                  </div>
+                  <h3 className="text-white font-bold text-lg mb-2">Phòng này chưa có thiết bị nào</h3>
+                  <p className="text-cyan-200/60 text-sm mb-4">Thêm thiết bị để bắt đầu quản lý phòng này</p>
+                  <Button
+                    onClick={() => setShowAddDeviceDialog(true)}
+                    className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold px-4 h-9 text-sm"
+                  >
+                    <Plus className="w-4 h-4" />
+                    Thêm thiết bị
+                  </Button>
                 </div>
-                <h3 className="text-white font-bold text-xl mb-2">Phòng này chưa có thiết bị nào</h3>
-                <p className="text-cyan-200/60 text-sm mb-6">Thêm thiết bị để bắt đầu quản lý</p>
-                <Button
-                  onClick={() => setShowAddDeviceDialog(true)}
-                  className="bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-600 hover:to-blue-700 text-white gap-2 shadow-xl shadow-cyan-500/40 hover:shadow-cyan-500/60 transition-all duration-300 font-bold px-5 h-10"
-                >
-                  <Plus className="w-4 h-4" />
-                  Thêm thiết bị
-                </Button>
               </div>
             )}
           </div>
@@ -901,17 +924,17 @@ export function Rooms({
 
         {/* Empty State - No Room Selected */}
         {!selectedRoom && (
-          <div className="flex-1 flex items-center justify-center text-center py-12 px-4 md:px-6 lg:px-8 w-full" style={{ width: '100%', maxWidth: '100%', overflow: 'visible', boxSizing: 'border-box', minWidth: 0 }}>
+          <div className="flex-1 flex items-center justify-center text-center py-8 px-4 md:px-6 lg:px-8 w-full" style={{ width: '100%', maxWidth: '100%', overflow: 'visible', boxSizing: 'border-box', minWidth: 0 }}>
             <div 
               id="empty-state-container"
-              className="box-border min-w-0 backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-10 sm:p-12 shadow-2xl w-full" 
+              className="box-border min-w-0 backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-8 sm:p-10 shadow-2xl w-full max-w-md" 
               style={{ maxWidth: '100%', boxSizing: 'border-box', overflow: 'visible' }}
             >
               <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-cyan-500/10 flex items-center justify-center border-2 border-cyan-500/30">
                 <Home className="w-10 h-10 text-cyan-400/70" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
               </div>
-              <h3 className="text-white font-bold text-xl mb-2">Chọn một phòng</h3>
-              <p className="text-cyan-200/60 text-sm mb-6">Chọn một phòng ở trên để xem và quản lý các thiết bị trong phòng đó</p>
+              <h3 className="text-white font-bold text-xl mb-3">Chọn một phòng</h3>
+              <p className="text-cyan-200/60 text-sm leading-relaxed">Chọn một phòng ở trên để xem và quản lý các thiết bị trong phòng đó</p>
             </div>
           </div>
         )}
@@ -936,7 +959,7 @@ export function Rooms({
                 setEditingRoom(null);
               }
             }}
-            onSuccess={async (newRoomName) => {
+            onSuccess={async () => {
               if (onUpdateRoom) {
                 await onUpdateRoom();
               }
@@ -975,11 +998,11 @@ export function Rooms({
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   {devicesWithoutRoom.map((device) => {
-                    const deviceId = device._id || device.id;
+                    const deviceId = device._id;
                     // Ưu tiên local state (optimistic update), fallback về props
                     const deviceEnabled = localDeviceEnabled.has(deviceId) 
                       ? localDeviceEnabled.get(deviceId)!
-                      : (device.enabled !== undefined ? device.enabled : (device.status === 'on'));
+                      : (device.enabled !== undefined ? device.enabled : false);
                     
                     const iconMap: Record<string, typeof Lightbulb> = {
                       light: Lightbulb,

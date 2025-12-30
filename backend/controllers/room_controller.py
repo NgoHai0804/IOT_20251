@@ -45,7 +45,23 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
                 }
             )
         
-        # Kiểm tra liên kết đã tồn tại chưa
+        # Kiểm tra user có quyền truy cập device này không
+        user_device_link = user_devices_collection.find_one({
+            "user_id": user_id,
+            "device_id": device_id
+        })
+        
+        if not user_device_link:
+            return JSONResponse(
+                status_code=status.HTTP_403_FORBIDDEN,
+                content={
+                    "status": False,
+                    "message": "You don't have access to this device",
+                    "data": None
+                }
+            )
+        
+        # Kiểm tra liên kết đã tồn tại chưa trong room này
         existing_link = user_room_devices_collection.find_one({
             "user_id": user_id,
             "room_id": room_id,
@@ -54,11 +70,15 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
         
         if existing_link:
             return JSONResponse(
-                status_code=status.HTTP_400_BAD_REQUEST,
+                status_code=status.HTTP_200_OK,
                 content={
-                    "status": False,
-                    "message": "Device already in this room for this user",
-                    "data": None
+                    "status": True,
+                    "message": "Device is already in this room",
+                    "data": {
+                        "room_id": room_id,
+                        "device_id": device_id,
+                        "user_id": user_id
+                    }
                 }
             )
         
@@ -70,19 +90,17 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
         })
         
         if existing_user_device:
-            # Cập nhật room_id
+            # Cập nhật room_id (chuyển device từ room khác sang room này)
             user_room_devices_collection.update_one(
                 {"user_id": user_id, "device_id": device_id},
                 {"$set": {"room_id": room_id, "updated_at": datetime.utcnow()}}
             )
-            logger.info(f"Đã cập nhật thiết bị {device_id} vào phòng {room_id} cho user {user_id}")
+            logger.info(f"Đã chuyển thiết bị {device_id} vào phòng {room_id} cho user {user_id}")
         else:
             # Tạo liên kết mới
             link = create_user_room_device_dict(user_id, device_id, room_id)
             user_room_devices_collection.insert_one(link)
             logger.info(f"Đã thêm thiết bị {device_id} vào phòng {room_id} cho user {user_id}")
-        
-        # Không cần cập nhật room.device_ids nữa - chỉ sử dụng bảng user_room_devices
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -768,69 +786,81 @@ def update_room_name(user_data: dict, old_room_name: str, new_room_name: str):
     Cập nhật tên phòng
     - old_room_name: Tên phòng cũ
     - new_room_name: Tên phòng mới
-    Tất cả devices trong phòng cũ sẽ được chuyển sang phòng mới
     """
     try:
         user_id = str(user_data["_id"])
 
-        # Lấy danh sách device_ids của user
-        linked_devices = user_devices_collection.find({"user_id": user_id})
-        device_ids = [link["device_id"] for link in linked_devices]
+        # Tìm room theo tên cũ và user_id
+        room = rooms_collection.find_one({
+            "name": old_room_name,
+            "user_id": user_id
+        })
 
-        if not device_ids:
+        if not room:
             return JSONResponse(
-                status_code=status.HTTP_200_OK,
+                status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "No devices found for this user",
+                    "message": f"Room '{old_room_name}' not found",
                     "data": None
                 }
             )
 
-        # Tìm tất cả devices của user có location = old_room_name
-        devices_to_update = list(devices_collection.find({
-            "device_id": {"$in": device_ids},
-            "location": old_room_name
-        }))
+        # Kiểm tra tên mới đã tồn tại chưa
+        existing_room = rooms_collection.find_one({
+            "name": new_room_name,
+            "user_id": user_id,
+            "_id": {"$ne": room["_id"]}  # Loại trừ room hiện tại
+        })
 
-        if not devices_to_update:
+        if existing_room:
             return JSONResponse(
-                status_code=status.HTTP_200_OK,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": f"Room '{old_room_name}' not found or has no devices",
+                    "message": f"Room name '{new_room_name}' already exists",
                     "data": None
                 }
             )
 
-        # Cập nhật location cho tất cả devices trong phòng
-        result = devices_collection.update_many(
-            {
-                "device_id": {"$in": device_ids},
-                "location": old_room_name
-            },
+        # Cập nhật tên phòng
+        result = rooms_collection.update_one(
+            {"_id": room["_id"]},
             {
                 "$set": {
-                    "location": new_room_name,
+                    "name": new_room_name,
                     "updated_at": datetime.utcnow()
                 }
             }
         )
 
-        return JSONResponse(
-            status_code=status.HTTP_200_OK,
-            content={
-                "status": True,
-                "message": f"Room name updated successfully",
-                "data": {
-                    "old_room_name": old_room_name,
-                    "new_room_name": new_room_name,
-                    "devices_updated": result.modified_count
+        if result.modified_count > 0:
+            return JSONResponse(
+                status_code=status.HTTP_200_OK,
+                content={
+                    "status": True,
+                    "message": f"Room name updated successfully",
+                    "data": {
+                        "room_id": room["_id"],
+                        "old_room_name": old_room_name,
+                        "new_room_name": new_room_name
+                    }
                 }
-            }
-        )
+            )
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": False,
+                    "message": "Failed to update room name",
+                    "data": None
+                }
+            )
 
     except Exception as e:
+        logger.error(f"Lỗi cập nhật tên phòng: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

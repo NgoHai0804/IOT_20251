@@ -477,6 +477,32 @@ export const roomAPI = {
     
     throw new Error(response.message || 'Failed to remove device from room');
   },
+
+  // Tìm room chứa device cụ thể
+  findDeviceRoom: async (deviceId: string): Promise<any | null> => {
+    try {
+      // Lấy tất cả rooms với details
+      const rooms = await roomAPI.getAllRooms();
+      
+      // Kiểm tra từng room để tìm device
+      for (const room of rooms) {
+        try {
+          const roomDetails = await roomAPI.getRoomDetails(room._id);
+          if (roomDetails.devices && roomDetails.devices.some((d: any) => d._id === deviceId)) {
+            return roomDetails;
+          }
+        } catch (error) {
+          // Bỏ qua lỗi của room cụ thể và tiếp tục tìm
+          continue;
+        }
+      }
+      
+      return null;
+    } catch (error) {
+      console.error('Error finding device room:', error);
+      return null;
+    }
+  },
 };
 
 // API thiết bị mới
@@ -526,6 +552,18 @@ export const newDeviceAPI = {
     }
     
     return [];
+  },
+
+  deleteDevice: async (deviceId: string): Promise<any> => {
+    const response = await apiRequest<any>(`/devices/${deviceId}`, {
+      method: 'DELETE',
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to delete device');
   },
 };
 

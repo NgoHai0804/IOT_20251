@@ -37,7 +37,7 @@ except Exception as e:
 
 # Tạo index cho refresh_tokens_collection
 try:
-    refresh_tokens_collection.create_index([("token", 1)], unique=True)
+    refresh_tokens_collection.create_index([("token_hash", 1)], unique=True)
     refresh_tokens_collection.create_index([("user_email", 1)])
     refresh_tokens_collection.create_index([("expires_at", 1)], expireAfterSeconds=0)  # TTL index để tự động xóa token hết hạn
 except Exception as e:

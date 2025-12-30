@@ -1,5 +1,6 @@
-import { useMemo, useState, useEffect, useRef } from 'react';
+import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
+import React from 'react';
 import type { Room, Device, Sensor, Actuator } from '@/types';
 import { Button } from './ui/button';
 import { Home, ChevronRight, Wrench, Pencil, Trash2 } from 'lucide-react';
@@ -25,7 +26,7 @@ interface RoomCardProps {
   onUpdateRoom?: () => Promise<void>;
 }
 
-export function RoomCard({
+const RoomCardComponent = function RoomCard({
   id,
   room,
   sensors,
@@ -40,11 +41,66 @@ export function RoomCard({
   const isOnRoomsPage = location.pathname === '/rooms';
   const [roomDevices, setRoomDevices] = useState<Device[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isControlling, setIsControlling] = useState(false); // Add loading state for room control
   const [roomSensorsWithLatestData, setRoomSensorsWithLatestData] = useState<Sensor[]>([]);
+  const [refreshTrigger, setRefreshTrigger] = useState(0); // Force refresh trigger
   const lastRoomIdRef = useRef<string | null>(null);
   const hasFetchedDetailsRef = useRef(false); // Track đã fetch detail chưa
+  const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null); // Debounce updates
   
-  // Mỗi RoomCard tự fetch detail khi render (nếu chưa có trong cache)
+  // Helper function to refresh room details (chỉ khi cần thiết, với debounce)
+  const refreshRoomDetails = useCallback(async () => {
+    // Clear existing timeout
+    if (updateTimeoutRef.current) {
+      clearTimeout(updateTimeoutRef.current);
+    }
+    
+    // Debounce updates to prevent rapid successive calls
+    updateTimeoutRef.current = setTimeout(async () => {
+      try {
+        // Kiểm tra xem có cần fetch mới không
+        const currentDevices = roomDevicesCache.getCachedDevices(room._id);
+        
+        const roomData = await roomAPI.getRoomDetails(room._id);
+        
+        if (roomData.devices) {
+          // So sánh với dữ liệu hiện tại để tránh update không cần thiết
+          const hasChanges = !currentDevices || 
+            currentDevices.length !== roomData.devices.length ||
+            currentDevices.some((device, index) => {
+              const newDevice = roomData.devices[index];
+              return !newDevice || 
+                device._id !== newDevice._id || 
+                device.enabled !== newDevice.enabled ||
+                device.name !== newDevice.name ||
+                device.status !== newDevice.status;
+            });
+          
+          if (hasChanges) {
+            const wasUpdated = roomDevicesCache.setDevices(room._id, roomData.devices);
+            
+            // Chỉ update state và dispatch event nếu cache thực sự thay đổi
+            if (wasUpdated) {
+              setRoomDevices(roomData.devices);
+              setRefreshTrigger(prev => prev + 1); // Force refresh
+              
+              // Dispatch event để các component khác biết
+              window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
+                detail: { devices: roomData.devices } 
+              }));
+              
+              // Dispatch room control completion event
+              window.dispatchEvent(new CustomEvent(`room-control-completed-${room._id}`));
+            }
+          }
+        }
+      } catch (error) {
+        console.error('Error refreshing room details:', error);
+      }
+    }, 100); // 100ms debounce
+  }, [room._id]);
+  
+  // Mỗi RoomCard kiểm tra và sử dụng dữ liệu có sẵn thay vì tự fetch
   useEffect(() => {
     const roomId = room._id;
     if (!roomId) {
@@ -60,30 +116,39 @@ export function RoomCard({
       hasFetchedDetailsRef.current = false;
     }
     
-    // Kiểm tra cache trước
-    const cached = roomDevicesCache.getCachedDevices(roomId);
-    if (cached && cached.length > 0) {
-      setRoomDevices(cached);
+    // Ưu tiên sử dụng dữ liệu từ props nếu có (từ parent component đã fetch)
+    if (room.devices && room.devices.length > 0) {
+      setRoomDevices(room.devices);
+      roomDevicesCache.setDevices(roomId, room.devices);
+      setRefreshTrigger(prev => prev + 1);
       return;
     }
     
-    // Nếu chưa có cache và chưa fetch, tự fetch detail
+    // Kiểm tra cache trước khi fetch
+    const cached = roomDevicesCache.getCachedDevices(roomId);
+    if (cached && cached.length > 0) {
+      setRoomDevices(cached);
+      setRefreshTrigger(prev => prev + 1);
+      return;
+    }
+    
+    // Luôn fetch room details để có dữ liệu chính xác, ngay cả khi room.devices rỗng
     if (!hasFetchedDetailsRef.current && isOnRoomsPage) {
       hasFetchedDetailsRef.current = true;
       setIsLoading(true);
       
       roomAPI.getRoomDetails(roomId)
         .then((roomData) => {
-          // Cập nhật devices vào cache và state
-          if (roomData.devices && roomData.devices.length > 0) {
-            roomDevicesCache.setDevices(roomId, roomData.devices);
-            setRoomDevices(roomData.devices);
-            
-            // Dispatch event để các component khác biết
-            window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
-              detail: { devices: roomData.devices } 
-            }));
-          }
+          // Cập nhật devices vào cache và state (có thể là mảng rỗng)
+          const devices = roomData.devices || [];
+          roomDevicesCache.setDevices(roomId, devices);
+          setRoomDevices(devices);
+          setRefreshTrigger(prev => prev + 1); // Force refresh
+          
+          // Dispatch event để các component khác biết
+          window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
+            detail: { devices } 
+          }));
           
           // Dispatch event để cập nhật sensors
           if (roomData.sensors) {
@@ -94,17 +159,17 @@ export function RoomCard({
         })
         .catch((error) => {
           console.error(`Error fetching room details for ${roomId}:`, error);
+          // Set empty array nếu có lỗi
+          setRoomDevices([]);
+          setRefreshTrigger(prev => prev + 1);
         })
         .finally(() => {
           setIsLoading(false);
         });
-    } else {
-      // Nếu không có cache và không fetch, set empty
-      setRoomDevices([]);
     }
-  }, [room._id, isOnRoomsPage]);
+  }, [room._id, room.devices, isOnRoomsPage]);
   
-  // Refresh devices khi có update - sử dụng custom event
+  // Refresh devices khi có update - sử dụng custom event (chỉ khi thực sự cần)
   const isRefreshingRef = useRef(false);
   useEffect(() => {
     if (!room._id) return;
@@ -119,19 +184,26 @@ export function RoomCard({
       
       isRefreshingRef.current = true;
       
-      // Invalidate cache và fetch lại
-      roomDevicesCache.invalidate(roomId);
-      setIsLoading(true);
-      
       try {
-        // Fetch lại từ API (cache đã bị invalidate)
-        const devices = await roomDevicesCache.getDevices(roomId);
-        setRoomDevices(devices);
+        // Thay vì invalidate cache và fetch lại, chỉ fetch nếu cần thiết
+        const currentCached = roomDevicesCache.getCachedDevices(roomId);
         
-        // Dispatch event để các component khác biết đã update
-        window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
-          detail: { devices } 
-        }));
+        // Chỉ fetch nếu cache rỗng hoặc dữ liệu cũ
+        if (!currentCached || currentCached.length === 0) {
+          setIsLoading(true);
+          const devices = await roomDevicesCache.getDevices(roomId);
+          setRoomDevices(devices);
+          setRefreshTrigger(prev => prev + 1);
+          
+          // Dispatch event để các component khác biết đã update
+          window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
+            detail: { devices } 
+          }));
+        } else {
+          // Sử dụng dữ liệu cache hiện có
+          setRoomDevices(currentCached);
+          setRefreshTrigger(prev => prev + 1);
+        }
       } catch (error: any) {
         console.error(`Error refreshing devices for room ${roomId}:`, error);
       } finally {
@@ -146,16 +218,22 @@ export function RoomCard({
     
     return () => {
       window.removeEventListener(eventName, handleRoomUpdate);
+      // Cleanup timeout on unmount
+      if (updateTimeoutRef.current) {
+        clearTimeout(updateTimeoutRef.current);
+      }
     };
   }, [room._id]);
   
   // Đếm số thiết bị đang hoạt động
   const activeDevices = useMemo(() => {
-    return roomDevices.filter(d => {
+    const activeCount = roomDevices.filter(d => {
       // Kiểm tra enabled trực tiếp, nếu không có thì mặc định là false
       return d.enabled === true;
     }).length;
-  }, [roomDevices]);
+    
+    return activeCount;
+  }, [roomDevices, refreshTrigger]); // Add refreshTrigger to dependencies
 
   // Lấy sensors của room (từ props - đã được truyền từ API getAllRooms với include_data=true)
   const [roomSensorsFromEvent, setRoomSensorsFromEvent] = useState<Sensor[] | null>(null);
@@ -296,20 +374,20 @@ export function RoomCard({
           : 'border-cyan-500/20 hover:border-cyan-400/40 hover:bg-white/15 bg-white/10'
       }`}
       style={{ 
-        width: '280px',
-        minWidth: '280px', 
-        maxWidth: '280px',
-        flexBasis: '280px',
+        width: '260px',
+        minWidth: '260px', 
+        maxWidth: '260px',
+        flexBasis: '260px',
         flexShrink: 0,
         flexGrow: 0,
       }}
       onClick={() => onSelect?.(room._id)}
     >
-      <div className="p-4 sm:p-5">
+      <div className="p-3 sm:p-4">
         {/* Header */}
-        <div className="flex items-center justify-between mb-3">
-          <div className="flex items-center gap-2.5 flex-1 min-w-0">
-            <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-lg flex items-center justify-center flex-shrink-0 relative transition-all duration-300"
+        <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 relative transition-all duration-300"
               style={{
                 background: isSelected 
                   ? 'linear-gradient(135deg, rgba(34, 211, 238, 0.4) 0%, rgba(59, 130, 246, 0.4) 100%)'
@@ -319,10 +397,10 @@ export function RoomCard({
                   : '0 0 15px rgba(34, 211, 238, 0.4), inset 0 0 15px rgba(34, 211, 238, 0.15)'
               }}
             >
-              <Home className="w-5 h-5 sm:w-5.5 sm:h-5.5 text-cyan-400" style={{ filter: 'drop-shadow(0 0 6px rgba(34, 211, 238, 0.6))' }} />
+              <Home className="w-4 h-4 sm:w-5 sm:h-5 text-cyan-400" style={{ filter: 'drop-shadow(0 0 6px rgba(34, 211, 238, 0.6))' }} />
             </div>
             <div className="flex-1 min-w-0">
-              <h4 className="text-white font-bold text-lg sm:text-xl truncate mb-0.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
+              <h4 className="text-white font-bold text-base sm:text-lg truncate mb-0.5" style={{ textShadow: '0 1px 3px rgba(0,0,0,0.3)' }}>
                 {room.name}
               </h4>
               <p className="text-cyan-200/60 text-xs">
@@ -381,13 +459,21 @@ export function RoomCard({
         </div>
 
         {/* Stats */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-2.5 p-2.5 rounded-lg bg-slate-800/40 border border-cyan-500/20">
+        <div className="mb-2">
+          <div className="flex items-center justify-between mb-2 p-2 rounded-lg bg-slate-800/40 border border-cyan-500/20">
             <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full ${activeDevices > 0 ? 'bg-green-400 animate-pulse' : 'bg-slate-500'}`} />
+              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
+                activeDevices > 0 
+                  ? 'bg-green-400 animate-pulse shadow-lg shadow-green-400/50' 
+                  : 'bg-slate-500'
+              }`} />
               <p className="text-cyan-200/70 text-sm font-medium">Thiết bị hoạt động</p>
             </div>
-            <p className="text-white font-bold text-lg">{activeDevices}/{roomDevices.length}</p>
+            <p className={`font-bold text-base transition-colors duration-300 ${
+              activeDevices > 0 ? 'text-green-400' : 'text-white'
+            }`}>
+              {activeDevices}/{roomDevices.length}
+            </p>
           </div>
           
           {/* Room Control */}
@@ -396,24 +482,68 @@ export function RoomCard({
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs px-2.5 flex-1 border-cyan-500/30 text-cyan-200 hover:bg-cyan-500/20 hover:border-cyan-400/50 transition-all"
-                onClick={(e) => {
+                disabled={isControlling}
+                className="h-7 text-xs px-2 flex-1 bg-green-500/10 border-green-500/40 text-green-200 hover:bg-green-500/25 hover:border-green-400/60 hover:text-green-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
+                onClick={async (e) => {
                   e.stopPropagation();
-                  onRoomControl(room._id, 'on');
+                  if (isControlling) return;
+                  
+                  setIsControlling(true);
+                  try {
+                    // Call room control
+                    await onRoomControl(room._id, 'on');
+                    
+                    // Immediate optimistic update - assume all devices will be enabled
+                    const optimisticDevices = roomDevices.map(device => ({
+                      ...device,
+                      enabled: true
+                    }));
+                    setRoomDevices(optimisticDevices);
+                    setRefreshTrigger(prev => prev + 1);
+                    
+                    // Auto-refresh room details after control to get actual state
+                    setTimeout(refreshRoomDetails, 500); // Wait 500ms for backend to process
+                  } catch (error) {
+                    console.error('Error controlling room:', error);
+                  } finally {
+                    setIsControlling(false);
+                  }
                 }}
               >
-                Bật tất cả
+                {isControlling ? 'Đang xử lý...' : 'Bật tất cả'}
               </Button>
               <Button
                 size="sm"
                 variant="outline"
-                className="h-8 text-xs px-2.5 flex-1 border-red-500/30 text-red-200 hover:bg-red-500/20 hover:border-red-400/50 transition-all"
-                onClick={(e) => {
+                disabled={isControlling}
+                className="h-7 text-xs px-2 flex-1 bg-red-500/10 border-red-500/40 text-red-200 hover:bg-red-500/25 hover:border-red-400/60 hover:text-red-100 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 font-medium"
+                onClick={async (e) => {
                   e.stopPropagation();
-                  onRoomControl(room._id, 'off');
+                  if (isControlling) return;
+                  
+                  setIsControlling(true);
+                  try {
+                    // Call room control
+                    await onRoomControl(room._id, 'off');
+                    
+                    // Immediate optimistic update - assume all devices will be disabled
+                    const optimisticDevices = roomDevices.map(device => ({
+                      ...device,
+                      enabled: false
+                    }));
+                    setRoomDevices(optimisticDevices);
+                    setRefreshTrigger(prev => prev + 1);
+                    
+                    // Auto-refresh room details after control to get actual state
+                    setTimeout(refreshRoomDetails, 500); // Wait 500ms for backend to process
+                  } catch (error) {
+                    console.error('Error controlling room:', error);
+                  } finally {
+                    setIsControlling(false);
+                  }
                 }}
               >
-                Tắt tất cả
+                {isControlling ? 'Đang xử lý...' : 'Tắt tất cả'}
               </Button>
             </div>
           )}
@@ -421,9 +551,9 @@ export function RoomCard({
 
         {/* Sensors Display */}
         {displaySensors.length > 0 && (
-          <div className="mb-0 pb-3 border-t border-cyan-500/20 pt-3">
-            <p className="text-cyan-200/70 text-xs font-medium mb-2 uppercase tracking-wide">Cảm biến</p>
-            <div className="space-y-1.5">
+          <div className="mb-0 pb-2 border-t border-cyan-500/20 pt-2">
+            <p className="text-cyan-200/70 text-xs font-medium mb-1.5 uppercase tracking-wide">Cảm biến</p>
+            <div className="space-y-1">
               {displaySensors.map((sensor) => {
                 const sensorValue = sensor.value !== undefined && sensor.value !== null ? sensor.value : 0;
                 const sensorUnit = sensor.unit || '';
@@ -447,18 +577,18 @@ export function RoomCard({
                 return (
                   <div 
                     key={sensor._id} 
-                    className={`bg-slate-800/60 border rounded-lg p-2.5 transition-all duration-200 hover:bg-slate-800/80 ${
+                    className={`bg-slate-800/60 border rounded-lg p-2 transition-all duration-200 hover:bg-slate-800/80 ${
                       isOverThreshold 
                         ? 'border-red-500/50 bg-red-500/15' 
                         : 'border-cyan-500/30 bg-white/5'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-1.5">
+                    <div className="flex items-center gap-2 mb-1">
                       {isOverThreshold && (
                         <span className="text-red-400 text-sm flex-shrink-0">!</span>
                       )}
-                      <p className="text-white font-medium text-sm truncate flex-1 min-w-0">{sensor.name}</p>
-                      <span className={`text-xl font-bold ${isOverThreshold ? 'text-red-400' : 'text-white'}`}>
+                      <p className="text-white font-medium text-xs truncate flex-1 min-w-0">{sensor.name}</p>
+                      <span className={`text-lg font-bold ${isOverThreshold ? 'text-red-400' : 'text-white'}`}>
                         {sensorValue.toFixed(1)}
                       </span>
                       <span className="text-cyan-200/70 text-xs">{sensorUnit}</span>
@@ -488,3 +618,32 @@ export function RoomCard({
     </div>
   );
 }
+
+// Utility function để so sánh devices arrays hiệu quả
+const compareDevicesArrays = (devices1?: Device[], devices2?: Device[]): boolean => {
+  if (!devices1 && !devices2) return true;
+  if (!devices1 || !devices2) return false;
+  if (devices1.length !== devices2.length) return false;
+  
+  return devices1.every((device1, index) => {
+    const device2 = devices2[index];
+    return device1._id === device2._id && 
+           device1.enabled === device2.enabled &&
+           device1.name === device2.name &&
+           device1.status === device2.status;
+  });
+};
+
+// Memoize component để tránh re-render không cần thiết
+export const RoomCard = React.memo(RoomCardComponent, (prevProps, nextProps) => {
+  // So sánh các props quan trọng để quyết định có re-render không
+  return (
+    prevProps.room._id === nextProps.room._id &&
+    prevProps.room.name === nextProps.room.name &&
+    prevProps.room.updated_at === nextProps.room.updated_at &&
+    prevProps.isSelected === nextProps.isSelected &&
+    prevProps.sensors?.length === nextProps.sensors?.length &&
+    // So sánh devices hiệu quả hơn
+    compareDevicesArrays(prevProps.room.devices, nextProps.room.devices)
+  );
+});

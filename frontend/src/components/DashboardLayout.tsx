@@ -8,8 +8,8 @@ import type { DashboardLayoutProps } from '@/types';
 
 const navItems = [
   { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, path: '/dashboard' },
-  { id: 'devices', label: 'Devices', icon: Lightbulb, path: '/devices' },
   { id: 'rooms', label: 'Rooms', icon: Home, path: '/rooms' },
+  { id: 'devices', label: 'Devices', icon: Lightbulb, path: '/devices' },
   { id: 'notifications', label: 'Notifications', icon: Bell, path: '/notifications' },
 ];
 

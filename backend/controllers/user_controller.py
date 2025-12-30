@@ -226,9 +226,30 @@ def refresh_access_token(refresh_token: str):
     try:
         from utils.auth import verify_refresh_token, create_access_token, create_refresh_token
         
+        # Validate input
+        if not refresh_token or not refresh_token.strip():
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": False,
+                    "message": "Refresh token is required",
+                    "data": None
+                }
+            )
+        
         # Xác thực refresh token
-        token_info = verify_refresh_token(refresh_token)
-        user_email = token_info["user_email"]
+        try:
+            token_info = verify_refresh_token(refresh_token.strip())
+            user_email = token_info["user_email"]
+        except HTTPException as e:
+            return JSONResponse(
+                status_code=e.status_code,
+                content={
+                    "status": False,
+                    "message": e.detail,
+                    "data": None
+                }
+            )
         
         # Kiểm tra user tồn tại
         user = users_collection.find_one({"email": user_email})
@@ -249,8 +270,12 @@ def refresh_access_token(refresh_token: str):
         new_refresh_token = create_refresh_token(user_email)
         
         # Thu hồi refresh token cũ
-        from utils.auth import revoke_refresh_token
-        revoke_refresh_token(refresh_token)
+        try:
+            from utils.auth import revoke_refresh_token
+            revoke_refresh_token(refresh_token.strip())
+        except Exception as e:
+            # Log but don't fail if revocation fails
+            print(f"Warning: Failed to revoke old refresh token: {e}")
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -264,16 +289,8 @@ def refresh_access_token(refresh_token: str):
             })
         )
         
-    except HTTPException as e:
-        return JSONResponse(
-            status_code=e.status_code,
-            content={
-                "status": False,
-                "message": e.detail,
-                "data": None
-            }
-        )
     except Exception as e:
+        print(f"Unexpected error in refresh_access_token: {e}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { AddDeviceDialog } from '@/components/AddDeviceDialog';
 import { EditDeviceDialog } from '@/components/EditDeviceDialog';
+import { DeleteDeviceDialog } from '@/components/DeleteDeviceDialog';
 import { EditSensorThresholdDialog } from '@/components/EditSensorThresholdDialog';
 import { ChartsPanel } from '@/components/ChartsPanel';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Lightbulb, Fan, AirVent, Plug, Pencil } from 'lucide-react';
+import { Lightbulb, Fan, AirVent, Plug, Pencil, Trash2 } from 'lucide-react';
 import { newDeviceAPI, sensorDataAPI } from '@/services/api';
 import { toast } from 'sonner';
 import type { DevicesProps, Device, Sensor, Actuator, ChartDataPoint } from '@/types';
@@ -43,6 +44,7 @@ export function Devices({
 }: DevicesProps) {
   const location = useLocation();
   const [editingDeviceId, setEditingDeviceId] = useState<string | null>(null);
+  const [deletingDevice, setDeletingDevice] = useState<{ id: string; name: string } | null>(null);
   const [selectedSensorId, setSelectedSensorId] = useState<string | null>(null);
   const [chartDefaultTab, setChartDefaultTab] = useState<string | undefined>(undefined);
   const [sensorChartData, setSensorChartData] = useState<{
@@ -179,12 +181,12 @@ export function Devices({
   
   // Tìm device đang edit từ devices array
   const editingDevice = editingDeviceId 
-    ? devices.find(d => (d._id || d.id) === editingDeviceId) || null
+    ? devices.find(d => d._id === editingDeviceId) || null
     : null;
 
   // Tìm device được chọn
   const selectedDevice = selectedDeviceId 
-    ? devices.find(d => (d._id || d.id) === selectedDeviceId) || null
+    ? devices.find(d => d._id === selectedDeviceId) || null
     : null;
 
   // Sử dụng local sensors và actuators từ device detail API
@@ -203,7 +205,7 @@ export function Devices({
     // Optimistic update: cập nhật ngay lập tức
     setLocalDeviceSensors(prevSensors =>
       prevSensors.map(sensor =>
-        (sensor._id || sensor.id) === sensorId
+        sensor._id === sensorId
           ? { ...sensor, enabled }
           : sensor
       )
@@ -216,7 +218,7 @@ export function Devices({
       // Rollback nếu API thất bại
       setLocalDeviceSensors(prevSensors =>
         prevSensors.map(sensor =>
-          (sensor._id || sensor.id) === sensorId
+          sensor._id === sensorId
             ? { ...sensor, enabled: !enabled }
             : sensor
         )
@@ -232,7 +234,7 @@ export function Devices({
     // Optimistic update: cập nhật ngay lập tức
     setLocalDeviceActuators(prevActuators =>
       prevActuators.map(actuator =>
-        (actuator._id || actuator.id) === actuatorId
+        actuator._id === actuatorId
           ? { ...actuator, state }
           : actuator
       )
@@ -245,7 +247,7 @@ export function Devices({
       // Rollback nếu API thất bại
       setLocalDeviceActuators(prevActuators =>
         prevActuators.map(actuator =>
-          (actuator._id || actuator.id) === actuatorId
+          actuator._id === actuatorId
             ? { ...actuator, state: !state }
             : actuator
         )
@@ -263,18 +265,28 @@ export function Devices({
     }>();
     
     devices.forEach((device) => {
-      const deviceId = device._id || device.id;
-      const deviceSensorsCount = sensors?.filter(s => (s.device_id || s.deviceId) === deviceId).length || 0;
-      const deviceActuatorsCount = actuators?.filter(a => (a.device_id || a.deviceId) === deviceId).length || 0;
-      // Tìm room chứa device này bằng cách query từ API (không dùng room.device_ids)
-      // Tạm thời dùng fallback: tìm trong room.devices hoặc device.room
-      let roomName = device.room || 'Chưa có phòng';
-      if (Array.isArray(rooms)) {
+      const deviceId = device._id;
+      const deviceSensorsCount = sensors?.filter(s => s.device_id === deviceId).length || 0;
+      const deviceActuatorsCount = actuators?.filter(a => a.device_id === deviceId).length || 0;
+      
+      // Ưu tiên sử dụng room name từ device object trực tiếp
+      let roomName = 'Chưa có phòng';
+      
+      // Kiểm tra device.room trước (từ API response)
+      if (device.room && typeof device.room === 'string' && device.room.trim()) {
+        roomName = device.room;
+      } 
+      // Nếu không có, tìm trong rooms array
+      else if (Array.isArray(rooms)) {
         const foundRoom = rooms.find((r: any) => {
           if (typeof r === 'string') return false;
+          // Kiểm tra theo room_id nếu có
+          if (device.room_id && r._id === device.room_id) {
+            return true;
+          }
           // Kiểm tra nếu room có devices và device này có trong đó
           if (r.devices && Array.isArray(r.devices)) {
-            return r.devices.some((d: Device) => (d._id || d.id) === deviceId);
+            return r.devices.some((d: Device) => d._id === deviceId);
           }
           return false;
         });
@@ -352,7 +364,7 @@ export function Devices({
     setLoadingSensorData(true);
     
     try {
-      const sensor = sensors?.find(s => (s._id || s.id) === sensorId);
+      const sensor = sensors?.find(s => s._id === sensorId);
       if (!sensor) {
         toast.error('Không tìm thấy sensor', { duration: 1000 });
         return;
@@ -399,7 +411,7 @@ export function Devices({
       const newChartData = {
         temperature: sensor.type === 'temperature' ? averagedData : [],
         humidity: sensor.type === 'humidity' ? averagedData : [],
-        energy: (sensor.type === 'energy' || sensor.type === 'gas' || sensor.type === 'light') ? averagedData : [],
+        energy: (sensor.type === 'gas' || sensor.type === 'light') ? averagedData : [],
       };
 
       setSensorChartData(newChartData);
@@ -408,7 +420,7 @@ export function Devices({
       let chartType: 'temperature' | 'humidity' | 'energy' = 'temperature';
       if (sensor.type === 'humidity') {
         chartType = 'humidity';
-      } else if (sensor.type === 'energy' || sensor.type === 'gas' || sensor.type === 'light') {
+      } else if (sensor.type === 'gas' || sensor.type === 'light') {
         chartType = 'energy';
       }
       
@@ -461,7 +473,7 @@ export function Devices({
   
   // Clear editing state nếu device không còn tồn tại
   useEffect(() => {
-    if (editingDeviceId && !devices.find(d => (d._id || d.id) === editingDeviceId)) {
+    if (editingDeviceId && !devices.find(d => d._id === editingDeviceId)) {
       setEditingDeviceId(null);
     }
   }, [devices, editingDeviceId]);
@@ -519,6 +531,21 @@ export function Devices({
     setEditingDeviceId(deviceId);
   };
 
+  const handleDeleteDevice = (deviceId: string, deviceName: string) => {
+    setDeletingDevice({ id: deviceId, name: deviceName });
+  };
+
+  const handleDeleteSuccess = () => {
+    if (onUpdateDevice) {
+      onUpdateDevice();
+    }
+    // Clear selection if deleted device was selected
+    if (deletingDevice && selectedDeviceId === deletingDevice.id) {
+      onDeviceClick?.('');
+    }
+    setDeletingDevice(null);
+  };
+
   return (
     <div 
       className="h-screen flex flex-col overflow-hidden font-sans"
@@ -531,28 +558,28 @@ export function Devices({
 
       <div className="relative z-10 h-full flex flex-col overflow-hidden p-4 md:p-6" style={{ overflowX: 'hidden', maxWidth: '100%', width: '100%', height: '100%' }}>
         {/* Header - Compact */}
-        <div className="flex items-center justify-between flex-shrink-0 mb-6" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
+        <div className="flex items-center justify-between flex-shrink-0 mb-4" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           <div>
-            <h2 className="text-white text-3xl font-bold tracking-tight mb-2" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>
+            <h2 className="text-white text-xl sm:text-2xl font-bold tracking-tight mb-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>
               Quản Lý Thiết Bị
             </h2>
-            <p className="text-cyan-200/70 text-base">Quản lý và điều khiển tất cả thiết bị IoT của bạn</p>
+            <p className="text-cyan-200/70 text-sm">Quản lý và điều khiển tất cả thiết bị IoT của bạn</p>
           </div>
-          <AddDeviceDialog onAddDevice={onAddDevice} rooms={rooms} />
+          <AddDeviceDialog onAddDevice={onAddDevice || (() => {})} rooms={Array.isArray(rooms) ? rooms.map(r => typeof r === 'string' ? r : r.name) : []} />
         </div>
 
         {/* Device List Container - Horizontal Scrollable */}
         <div style={{ overflowX: 'hidden', maxWidth: '100%' }}>
           {devices.length === 0 ? (
-            <div className="text-center py-16 text-cyan-200/80 bg-slate-800/40 border border-cyan-500/30 rounded-2xl backdrop-blur-xl shadow-xl mx-4 md:mx-6 lg:mx-8">
-              <Plug className="w-20 h-20 mx-auto mb-6 text-cyan-400/50" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
+            <div className="text-center py-8 text-cyan-200/80 bg-slate-800/40 border border-cyan-500/30 rounded-2xl backdrop-blur-xl shadow-xl mx-4 md:mx-6 lg:mx-8">
+              <Plug className="w-16 h-16 mx-auto mb-4 text-cyan-400/50" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
               <p className="font-semibold text-lg mb-2">Chưa có thiết bị nào</p>
               <p className="text-cyan-200/60 text-sm">Hãy thêm thiết bị mới để bắt đầu!</p>
             </div>
           ) : (
             <div
               id="device-list-scroll-container"
-              className="box-border min-w-0 px-4 md:px-6 lg:px-8 mb-4 w-full backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-xl shadow-2xl p-3 sm:p-4 overflow-x-auto overflow-y-hidden"
+              className="box-border min-w-0 px-4 md:px-6 lg:px-8 mb-3 w-full backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-xl shadow-2xl p-2 sm:p-3 overflow-x-auto overflow-y-hidden"
               style={{ 
                 maxWidth: '100%', 
                 boxSizing: 'border-box', 
@@ -606,13 +633,13 @@ export function Devices({
                   display: none;
                 }
               `}</style>
-              <div className="inline-flex gap-3 sm:gap-4 touch-pan-x" style={{ width: 'max-content', paddingBottom: '12px' }}>
+              <div className="inline-flex gap-2 sm:gap-3 touch-pan-x" style={{ width: 'max-content', paddingBottom: '8px' }}>
                   {devices.map((device) => {
                     const Icon = iconMap[device.type] || Plug;
                     const gradient = colorMap[device.type] || 'from-slate-500 to-slate-600';
-                    const deviceId = device._id || device.id;
+                    const deviceId = device._id;
                     const isSelected = selectedDeviceId === deviceId;
-                    const deviceEnabled = device.enabled !== undefined ? device.enabled : (device.status === 'on');
+                    const deviceEnabled = device.enabled !== undefined ? device.enabled : false;
                     
                     // Sử dụng metadata đã ghi nhớ
                     const metadata = deviceMetadata.get(deviceId) || {
@@ -634,47 +661,47 @@ export function Devices({
                         }`}
                         onClick={() => onDeviceClick?.(deviceId)}
                         style={{ 
-                          width: '320px',
-                          minWidth: '320px', 
-                          maxWidth: '320px',
-                          flexBasis: '320px',
+                          width: '280px',
+                          minWidth: '280px', 
+                          maxWidth: '280px',
+                          flexBasis: '280px',
                           flexShrink: 0,
                           flexGrow: 0,
                           boxShadow: isSelected 
-                            ? '0 10px 40px rgba(34, 211, 238, 0.4), 0 0 0 1px rgba(34, 211, 238, 0.3)' 
+                            ? '0 8px 32px rgba(34, 211, 238, 0.4), 0 0 0 1px rgba(34, 211, 238, 0.3)' 
                             : deviceEnabled
-                            ? '0 8px 32px rgba(74, 222, 128, 0.25), 0 0 0 1px rgba(74, 222, 128, 0.15)'
-                            : '0 4px 20px rgba(0, 0, 0, 0.3)'
+                            ? '0 6px 24px rgba(74, 222, 128, 0.25), 0 0 0 1px rgba(74, 222, 128, 0.15)'
+                            : '0 4px 16px rgba(0, 0, 0, 0.3)'
                         }}
                       >
-                        <div className="p-5">
-                          {/* Header: Icon, Name, Status */}
-                          <div className="flex items-start justify-between mb-4">
+                        <div className="p-4">
+                          {/* Header: Icon, Name, Switch */}
+                          <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div 
-                                className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 relative bg-gradient-to-br ${gradient} shadow-lg`}
+                                className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 relative bg-gradient-to-br ${gradient} shadow-lg`}
                                 style={{
                                   boxShadow: deviceEnabled 
-                                    ? '0 0 25px rgba(74, 222, 128, 0.6), inset 0 0 25px rgba(74, 222, 128, 0.2)'
-                                    : '0 0 20px rgba(34, 211, 238, 0.4), inset 0 0 20px rgba(34, 211, 238, 0.15)',
-                                  opacity: deviceEnabled ? 1 : 0.6
+                                    ? '0 0 20px rgba(74, 222, 128, 0.5), inset 0 0 20px rgba(74, 222, 128, 0.15)'
+                                    : '0 0 15px rgba(34, 211, 238, 0.3), inset 0 0 15px rgba(34, 211, 238, 0.1)',
+                                  opacity: deviceEnabled ? 1 : 0.7
                                 }}
                               >
-                                <Icon className="w-7 h-7 text-white" style={{ filter: 'drop-shadow(0 0 10px rgba(255, 255, 255, 0.6))' }} />
+                                <Icon className="w-6 h-6 text-white" style={{ filter: 'drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))' }} />
                               </div>
                               <div className="flex-1 min-w-0">
-                                <h4 className="text-white font-bold text-lg truncate mb-1" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                                <h4 className="text-white font-bold text-base truncate mb-0.5" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
                                   {device.name}
                                 </h4>
-                                <p className="text-cyan-200/70 text-xs font-medium truncate capitalize">
-                                  {device.type}
+                                <p className="text-cyan-200/70 text-sm font-medium truncate capitalize">
+                                  {device.type} • {roomName}
                                 </p>
                               </div>
                             </div>
                             {onDeviceToggle && (
                               <Switch
                                 checked={deviceEnabled}
-                                onCheckedChange={(checked) => {
+                                onCheckedChange={() => {
                                   onDeviceToggle(deviceId);
                                 }}
                                 onClick={(e) => {
@@ -685,45 +712,56 @@ export function Devices({
                             )}
                           </div>
                           
-                          {/* Info: Room, Status, Counts */}
-                          <div className="space-y-2.5 mb-4">
-                            <div className="flex items-center justify-between text-xs p-2 rounded-lg bg-slate-900/40">
-                              <span className="text-cyan-200/80 truncate flex-1 min-w-0 font-medium">{roomName}</span>
-                              <span className={`text-xs font-bold px-2.5 py-1 rounded-md flex-shrink-0 ml-2 ${
-                                deviceEnabled 
-                                  ? 'bg-green-500/25 text-green-400 border border-green-500/30' 
-                                  : 'bg-slate-500/25 text-slate-400 border border-slate-500/30'
-                              }`}>
-                                {deviceEnabled ? 'ON' : 'OFF'}
-                              </span>
-                            </div>
-                            <div className="flex items-center gap-3 text-xs text-cyan-200/70">
+                          {/* Stats */}
+                          <div className="flex items-center justify-between text-xs text-cyan-200/70 mb-3">
+                            <div className="flex items-center gap-3">
                               {deviceSensorsCount > 0 && (
-                                <span className="flex items-center gap-1.5 bg-slate-900/40 px-2 py-1 rounded-md">
+                                <span className="flex items-center gap-1 bg-slate-900/40 px-2 py-1 rounded-md">
                                   <span className="font-medium">{deviceSensorsCount} cảm biến</span>
                                 </span>
                               )}
                               {deviceActuatorsCount > 0 && (
-                                <span className="flex items-center gap-1.5 bg-slate-900/40 px-2 py-1 rounded-md">
+                                <span className="flex items-center gap-1 bg-slate-900/40 px-2 py-1 rounded-md">
                                   <span className="font-medium">{deviceActuatorsCount} điều khiển</span>
                                 </span>
                               )}
                             </div>
+                            <span className={`text-xs font-bold px-2 py-1 rounded-md ${
+                              deviceEnabled 
+                                ? 'bg-green-500/25 text-green-400 border border-green-500/30' 
+                                : 'bg-slate-500/25 text-slate-400 border border-slate-500/30'
+                            }`}>
+                              {deviceEnabled ? 'ON' : 'OFF'}
+                            </span>
                           </div>
                           
-                          {/* Action Button */}
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="w-full h-9 text-xs text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 font-semibold"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleEditDevice(deviceId);
-                            }}
-                          >
-                            <Pencil className="w-4 h-4 mr-1.5" />
-                            Sửa thiết bị
-                          </Button>
+                          {/* Action Buttons */}
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="flex-1 h-8 text-xs text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 font-semibold rounded-lg"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleEditDevice(deviceId);
+                              }}
+                            >
+                              <Pencil className="w-3.5 h-3.5 mr-1.5" />
+                              Sửa
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0 text-red-400/90 hover:text-red-300 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 transition-all duration-200 rounded-lg"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleDeleteDevice(deviceId, device.name);
+                              }}
+                              title="Xóa thiết bị"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -735,33 +773,33 @@ export function Devices({
 
         {/* Selected Device Details - Split Layout */}
         {selectedDevice && (
-          <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden min-h-0" style={{ maxWidth: '100%', overflowX: 'hidden', height: '100%' }}>
+          <div className="flex-1 flex flex-col lg:flex-row gap-3 overflow-hidden min-h-0" style={{ maxWidth: '100%', overflowX: 'hidden', height: '100%' }}>
             {/* Left Panel: Sensors & Actuators */}
-            <div className="flex-shrink-0 lg:w-80 flex flex-col gap-4 overflow-hidden min-h-0">
+            <div className="flex-shrink-0 lg:w-72 flex flex-col gap-3 overflow-hidden min-h-0">
               {/* Sensors */}
               {deviceSensorsList.length > 0 && (
-                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-3 flex flex-col min-h-0 flex-shrink">
+                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Cảm biến</h4>
-                  <div className="space-y-2 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '240px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
+                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '300px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
                           {deviceSensorsList.map((sensor) => {
-                            const sensorId = sensor._id || sensor.id;
+                            const sensorId = sensor._id;
                             const isSelected = selectedSensorId === sensorId;
                             
                             return (
                               <div 
                                 key={sensorId} 
-                                className={`rounded-lg border p-3 cursor-pointer transition-all duration-200 ${
+                                className={`rounded-lg border p-2.5 cursor-pointer transition-all duration-200 ${
                                   isSelected
                                     ? 'border-cyan-400/60 bg-cyan-500/20 ring-2 ring-cyan-400/30'
                                     : 'border-cyan-500/10 bg-white/5 hover:border-cyan-400/40 hover:bg-white/10'
                                 }`}
                                 onClick={() => handleSensorClick(sensorId)}
                               >
-                                <div className="flex items-start justify-between gap-3">
+                                <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
                                     {/* Sensor Name and Type */}
-                                    <div className="flex items-center gap-2 mb-2">
-                                      <span className="text-white font-semibold text-sm">
+                                    <div className="flex items-center gap-1.5 mb-1.5">
+                                      <span className="text-white font-semibold text-xs">
                                         {sensor.name}
                                       </span>
                                       <span className="text-cyan-200/50 text-xs flex-shrink-0">
@@ -774,8 +812,8 @@ export function Devices({
                                     
                                     {/* Sensor Value */}
                                     {sensor.value !== undefined ? (
-                                      <div className="flex items-baseline gap-1.5 mb-1.5">
-                                        <span className={`font-bold text-xl ${
+                                      <div className="flex items-baseline gap-1 mb-1">
+                                        <span className={`font-bold text-lg ${
                                           (sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
                                           (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)
                                             ? 'text-red-400' 
@@ -783,19 +821,19 @@ export function Devices({
                                         }`}>
                                           {sensor.value.toFixed(1)}
                                         </span>
-                                        <span className="text-cyan-200/70 text-sm">
+                                        <span className="text-cyan-200/70 text-xs">
                                           {sensor.unit || ''}
                                         </span>
                                         {/* Cảnh báo vượt ngưỡng */}
                                         {((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
                                           (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)) && (
-                                          <span className="text-red-400 text-base ml-1" title="Vượt quá ngưỡng nguy hiểm">
+                                          <span className="text-red-400 text-sm ml-1" title="Vượt quá ngưỡng nguy hiểm">
                                             !
                                           </span>
                                         )}
                                       </div>
                                     ) : (
-                                      <div className="text-slate-400 text-xs mb-1.5">Chưa có dữ liệu</div>
+                                      <div className="text-slate-400 text-xs mb-1">Chưa có dữ liệu</div>
                                     )}
                                     
                                     {/* Ngưỡng */}
@@ -818,12 +856,13 @@ export function Devices({
                                       <Switch
                                         checked={sensor.enabled}
                                         onCheckedChange={(checked) => {
+                                          const sensorId = sensor._id;
                                           if (sensorId) {
                                             handleSensorToggle(sensorId, checked);
                                           }
                                         }}
                                         onClick={(e) => e.stopPropagation()}
-                                        className="data-[state=checked]:bg-green-500 h-5 w-9"
+                                        className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9"
                                       />
                                     )}
                                     <Button
@@ -849,18 +888,18 @@ export function Devices({
 
               {/* Actuators */}
               {deviceActuatorsList.length > 0 && (
-                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-3 flex flex-col min-h-0 flex-shrink">
+                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Điều khiển</h4>
-                  <div className="space-y-2 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '160px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
+                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '140px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
                           {deviceActuatorsList.map((actuator) => (
                             <div 
-                              key={actuator._id || actuator.id} 
-                              className="rounded-lg border border-cyan-500/10 bg-white/5 p-3 hover:border-cyan-400/30 hover:bg-white/10 transition-all duration-200"
+                              key={actuator._id} 
+                              className="rounded-lg border border-cyan-500/10 bg-white/5 p-2.5 hover:border-cyan-400/30 hover:bg-white/10 transition-all duration-200"
                             >
                               <div className="flex items-center justify-between">
                                 <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-white font-semibold text-sm">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-white font-semibold text-xs">
                                       {actuator.name}
                                     </span>
                                     <span className="text-cyan-200/50 text-xs">
@@ -872,12 +911,12 @@ export function Devices({
                                   <Switch
                                     checked={actuator.state}
                                     onCheckedChange={(checked) => {
-                                      const actuatorId = actuator._id || actuator.id;
+                                      const actuatorId = actuator._id;
                                       if (actuatorId) {
                                         handleActuatorToggle(actuatorId, checked);
                                       }
                                     }}
-                                    className="data-[state=checked]:bg-green-500 h-5 w-9 flex-shrink-0"
+                                    className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9 flex-shrink-0"
                                   />
                                 )}
                               </div>
@@ -921,8 +960,8 @@ export function Devices({
         {/* Empty State - Fixed */}
         {!selectedDevice && (
           <div className="flex-1 flex items-center justify-center text-center min-h-0">
-            <div className="backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-12 shadow-2xl">
-              <Plug className="w-20 h-20 mx-auto mb-6 text-cyan-400/50" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
+            <div className="backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-8 shadow-2xl">
+              <Plug className="w-16 h-16 mx-auto mb-4 text-cyan-400/50" style={{ filter: 'drop-shadow(0 0 15px rgba(34, 211, 238, 0.4))' }} />
               <p className="text-cyan-200/80 font-semibold text-lg mb-2">Chọn một thiết bị</p>
               <p className="text-cyan-200/60 text-sm">Chọn một thiết bị ở trên để xem chi tiết sensor và biểu đồ</p>
             </div>
@@ -932,7 +971,7 @@ export function Devices({
         {/* Edit Device Dialog */}
         {editingDevice && (
           <EditDeviceDialog
-            key={editingDevice._id || editingDevice.id}
+            key={editingDevice._id}
             device={editingDevice}
             rooms={rooms || []}
             onUpdateDevice={async () => {
@@ -961,6 +1000,21 @@ export function Devices({
                 await onUpdateDevice();
               }
             }}
+          />
+        )}
+
+        {/* Delete Device Dialog */}
+        {deletingDevice && (
+          <DeleteDeviceDialog
+            deviceId={deletingDevice.id}
+            deviceName={deletingDevice.name}
+            open={!!deletingDevice}
+            onOpenChange={(open) => {
+              if (!open) {
+                setDeletingDevice(null);
+              }
+            }}
+            onSuccess={handleDeleteSuccess}
           />
         )}
       </div>

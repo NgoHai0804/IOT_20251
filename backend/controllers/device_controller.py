@@ -368,3 +368,90 @@ def get_devices_by_room(room_id: str, user_id: str = None):
                 "data": None
             }
         )
+
+
+def delete_device(device_id: str, user_id: str = None):
+    """
+    Xóa thiết bị và tất cả dữ liệu liên quan
+    DELETE /devices/{device_id}
+    """
+    try:
+        # Kiểm tra device tồn tại
+        device = devices_collection.find_one({"_id": device_id})
+        if not device:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "Device not found",
+                    "data": None
+                }
+            )
+        
+        # Kiểm tra quyền truy cập từ bảng user_room_devices (nếu có user_id)
+        if user_id:
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={
+                        "status": False,
+                        "message": "Access denied: Device does not belong to user",
+                        "data": None
+                    }
+                )
+
+        # Xóa tất cả sensors của device
+        sensors_result = sensors_collection.delete_many({"device_id": device_id})
+        logger.info(f"Đã xóa {sensors_result.deleted_count} sensors của device {device_id}")
+        
+        # Xóa tất cả actuators của device
+        actuators_result = actuators_collection.delete_many({"device_id": device_id})
+        logger.info(f"Đã xóa {actuators_result.deleted_count} actuators của device {device_id}")
+        
+        # Xóa tất cả sensor data của device (nếu có collection sensor_data)
+        try:
+            from utils.database import sensor_data_collection
+            sensor_data_result = sensor_data_collection.delete_many({"device_id": device_id})
+            logger.info(f"Đã xóa {sensor_data_result.deleted_count} sensor data của device {device_id}")
+        except Exception as e:
+            logger.warning(f"Không thể xóa sensor data: {str(e)}")
+        
+        # Xóa tất cả user_room_devices links của device
+        user_room_devices_result = user_room_devices_collection.delete_many({"device_id": device_id})
+        logger.info(f"Đã xóa {user_room_devices_result.deleted_count} user_room_devices links của device {device_id}")
+        
+        # Xóa device khỏi devices collection
+        devices_result = devices_collection.delete_one({"_id": device_id})
+        
+        if devices_result.deleted_count == 0:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "status": False,
+                    "message": "Failed to delete device",
+                    "data": None
+                }
+            )
+
+        logger.info(f"Đã xóa thiết bị {device_id} và tất cả dữ liệu liên quan")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Device deleted successfully",
+                "data": {"device_id": device_id}
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Lỗi xóa thiết bị: {str(e)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )

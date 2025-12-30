@@ -29,10 +29,31 @@ class RoomDevicesCache {
     this.fetchedRoomIds.clear();
   }
 
-  // Set devices cho một room (khi có update từ bên ngoài)
+  // Set devices cho một room (chỉ khi có thay đổi)
   setDevices(roomId: string, devices: Device[]) {
+    const existing = this.cache.get(roomId);
+    
+    // So sánh với dữ liệu hiện có để tránh update không cần thiết
+    if (existing && this.areDevicesEqual(existing, devices)) {
+      return false; // Không có thay đổi
+    }
+    
     this.cache.set(roomId, devices);
     this.fetchedRoomIds.add(roomId);
+    return true; // Có thay đổi
+  }
+
+  // So sánh hai arrays devices
+  private areDevicesEqual(devices1: Device[], devices2: Device[]): boolean {
+    if (devices1.length !== devices2.length) return false;
+    
+    return devices1.every((device1, index) => {
+      const device2 = devices2[index];
+      return device1._id === device2._id && 
+             device1.enabled === device2.enabled &&
+             device1.name === device2.name &&
+             device1.status === device2.status;
+    });
   }
 
   // Get devices từ cache (không fetch)

@@ -71,37 +71,48 @@ def verify_refresh_token(token: str) -> dict:
     Returns: dict với user_email nếu hợp lệ
     Raises: HTTPException nếu token không hợp lệ
     """
-    if not token:
+    if not token or not token.strip():
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token is required",
+            detail="Invalid token",
         )
     
-    # Hash token để so sánh
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    
-    # Tìm token trong database
-    token_doc = refresh_tokens_collection.find_one({
-        "token_hash": token_hash,
-        "is_revoked": False
-    })
-    
-    if not token_doc:
+    try:
+        # Hash token để so sánh
+        token_hash = hashlib.sha256(token.strip().encode()).hexdigest()
+        
+        # Tìm token trong database
+        token_doc = refresh_tokens_collection.find_one({
+            "token_hash": token_hash,
+            "is_revoked": False
+        })
+        
+        if not token_doc:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+        
+        # Kiểm tra hết hạn
+        if token_doc["expires_at"] < datetime.utcnow():
+            # Xóa token hết hạn
+            refresh_tokens_collection.delete_one({"_id": token_doc["_id"]})
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid token",
+            )
+        
+        return {"user_email": token_doc["user_email"]}
+        
+    except HTTPException:
+        # Re-raise HTTPException as-is
+        raise
+    except Exception as e:
+        print(f"Error verifying refresh token: {e}")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid refresh token",
+            detail="Invalid token",
         )
-    
-    # Kiểm tra hết hạn
-    if token_doc["expires_at"] < datetime.utcnow():
-        # Xóa token hết hạn
-        refresh_tokens_collection.delete_one({"_id": token_doc["_id"]})
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Refresh token expired",
-        )
-    
-    return {"user_email": token_doc["user_email"]}
 
 
 # =========================
@@ -111,11 +122,18 @@ def revoke_refresh_token(token: str):
     """
     Đánh dấu refresh token là đã thu hồi
     """
-    token_hash = hashlib.sha256(token.encode()).hexdigest()
-    refresh_tokens_collection.update_one(
-        {"token_hash": token_hash},
-        {"$set": {"is_revoked": True}}
-    )
+    try:
+        if not token or not token.strip():
+            return  # Silently ignore invalid tokens
+            
+        token_hash = hashlib.sha256(token.strip().encode()).hexdigest()
+        refresh_tokens_collection.update_one(
+            {"token_hash": token_hash},
+            {"$set": {"is_revoked": True}}
+        )
+    except Exception as e:
+        print(f"Error revoking refresh token: {e}")
+        # Don't raise exception, just log the error
 
 
 # =========================

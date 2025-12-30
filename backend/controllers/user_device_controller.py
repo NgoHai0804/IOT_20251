@@ -345,6 +345,10 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
         allowed_fields = ["device_name", "device_password", "location", "note", "status", "cloud_status"]
         update_fields = {k: v for k, v in update_data.items() if k in allowed_fields}
         
+        # Map device_name to name field (frontend sends device_name but database uses name)
+        if "device_name" in update_fields:
+            update_fields["name"] = update_fields.pop("device_name")
+        
         # Xử lý location để cập nhật room_id trong bảng user_room_devices
         # Chỉ xử lý nếu location được truyền vào trong update_data
         room_id_to_set = None
@@ -465,7 +469,8 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
             )
 
         # Lấy thông tin thiết bị đã cập nhật (không bao gồm mật khẩu)
-        updated_device = devices_collection.find_one({"device_id": id_device})
+        # Sử dụng cùng query như khi update để đảm bảo tìm đúng device
+        updated_device = devices_collection.find_one(device_query)
         if updated_device:
             updated_device["_id"] = str(updated_device["_id"])
             updated_device.pop("device_password", None)
@@ -477,7 +482,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
                 "message": "Device updated successfully",
                 "data": {
                     "device_id": id_device,
-                    "updated_fields": list(update_fields.keys()),
+                    "updated_fields": [field if field != "name" else "device_name" for field in update_fields.keys()],
                     "device": sanitize_for_json(updated_device) if updated_device else None
                 }
             }

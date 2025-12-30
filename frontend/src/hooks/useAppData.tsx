@@ -425,13 +425,56 @@ export function useAppData(): AppContextType {
     try {
       setIsToggling(true);
       await newDeviceAPI.controlDevicePower(deviceId, enabled);
-      toast.success(`Device ${enabled ? 'enabled' : 'disabled'}`, { duration: 1000 });
+      toast.success(`Thiết bị đã ${enabled ? 'bật' : 'tắt'}`, { duration: 1000 });
+      
+      // Tự động cập nhật dữ liệu thiết bị sau khi điều khiển
+      try {
+        const deviceDetail = await newDeviceAPI.getDeviceDetail(deviceId);
+        
+        // Dispatch event để các component khác biết device đã được cập nhật
+        window.dispatchEvent(new CustomEvent(`device-updated-${deviceId}`, { 
+          detail: { device: deviceDetail } 
+        }));
+        
+        // Cập nhật sensors và actuators nếu có
+        if (deviceDetail.sensors) {
+          setSensors(prevSensors => {
+            const updatedSensorIds = new Set(deviceDetail.sensors.map((s: any) => s._id || s.id));
+            return prevSensors.map(sensor => {
+              const sensorId = sensor._id || sensor.id;
+              if (updatedSensorIds.has(sensorId)) {
+                const updatedSensor = deviceDetail.sensors.find((s: any) => (s._id || s.id) === sensorId);
+                return updatedSensor ? { ...sensor, ...updatedSensor } : sensor;
+              }
+              return sensor;
+            });
+          });
+        }
+        
+        if (deviceDetail.actuators) {
+          setActuators(prevActuators => {
+            const updatedActuatorIds = new Set(deviceDetail.actuators.map((a: any) => a._id || a.id));
+            return prevActuators.map(actuator => {
+              const actuatorId = actuator._id || actuator.id;
+              if (updatedActuatorIds.has(actuatorId)) {
+                const updatedActuator = deviceDetail.actuators.find((a: any) => (a._id || a.id) === actuatorId);
+                return updatedActuator ? { ...actuator, ...updatedActuator } : actuator;
+              }
+              return actuator;
+            });
+          });
+        }
+      } catch (error) {
+        console.error('Error refreshing device data:', error);
+        // Không cần fallback vì optimistic update đã hoạt động
+      }
+      
       setIsToggling(false);
     } catch (error) {
       console.error('Error toggling device power:', error);
       // Rollback nếu API call thất bại
       setDevices(previousDevices);
-      toast.error('Failed to control device', { duration: 1000 });
+      toast.error('Không thể điều khiển thiết bị', { duration: 1000 });
       setIsToggling(false);
     }
   };
@@ -484,15 +527,16 @@ export function useAppData(): AppContextType {
     try {
       setIsToggling(true);
       await roomAPI.controlRoom(roomId, action);
-      toast.success(`Room ${action === 'on' ? 'enabled' : 'disabled'}`, { duration: 1000 });
+      toast.success(`Phòng đã ${action === 'on' ? 'bật' : 'tắt'} tất cả thiết bị`, { duration: 1000 });
       
-      // Cập nhật devices từ room details API thay vì getDevicesByRoom
+      // Tự động cập nhật dữ liệu phòng sau khi điều khiển
       try {
-        const { roomAPI } = await import('@/services/api');
-        const roomData = await roomAPI.refreshRoomData(roomId);
+        const roomData = await roomAPI.getRoomDetails(roomId);
         if (roomData.devices) {
           const deviceIds = roomData.devices.map((d: Device) => d._id || d.id);
           const enabled = action === 'on';
+          
+          // Cập nhật devices state
           setDevices(prevDevices => 
             prevDevices.map(device => {
               const deviceId = device._id || device.id;
@@ -501,16 +545,25 @@ export function useAppData(): AppContextType {
                 : device;
             })
           );
+          
+          // Dispatch event để các component khác biết room đã được cập nhật
+          window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
+            detail: { devices: roomData.devices } 
+          }));
+          
+          // Cập nhật cache
+          const { roomDevicesCache } = await import('@/utils/roomDevicesCache');
+          roomDevicesCache.setDevices(roomId, roomData.devices);
         }
       } catch (error) {
-        console.error('Error fetching room devices:', error);
+        console.error('Error refreshing room data:', error);
         // Fallback: reload all devices
         await fetchDevices();
       }
       setIsToggling(false);
     } catch (error) {
       console.error('Error controlling room:', error);
-      toast.error('Failed to control room', { duration: 1000 });
+      toast.error('Không thể điều khiển phòng', { duration: 1000 });
       setIsToggling(false);
     }
   };

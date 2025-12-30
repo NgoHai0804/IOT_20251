@@ -48,3 +48,10 @@ async def get_devices_by_room_route(room_id: str, current_user: dict = Depends(g
     """Lấy danh sách thiết bị theo phòng của user"""
     user_id = str(current_user["_id"])
     return device_controller.get_devices_by_room(room_id, user_id)
+
+
+@router.delete("/{device_id}", response_model=ResponseSchema)
+async def delete_device_route(device_id: str, current_user: dict = Depends(get_current_user)):
+    """Xóa thiết bị và tất cả dữ liệu liên quan"""
+    user_id = str(current_user["_id"])
+    return device_controller.delete_device(device_id, user_id)
