@@ -70,13 +70,14 @@ import os
 import ssl
 import time
 import traceback
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 from utils.database import sensor_data_collection, devices_collection, sensors_collection, actuators_collection, rooms_collection, notifications_collection, user_room_devices_collection
 from models.device_models import create_device_dict
 from models.sensor_models import create_sensor_dict
 from models.actuator_models import create_actuator_dict
 from models.data_models import create_sensor_data_dict
+from utils.timezone import get_vietnam_now_naive
 from dotenv import load_dotenv
 
 # Tải biến môi trường
@@ -233,7 +234,7 @@ class MQTTClient:
             # Cập nhật trạng thái device thành online
             devices_collection.update_one(
                 {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
+                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
             )
             
             # Format mới: {"value": 25.5, "unit": "°C"}
@@ -271,7 +272,7 @@ class MQTTClient:
             # Cập nhật trạng thái device thành online
             devices_collection.update_one(
                 {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
+                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
             )
             
             # Xử lý dữ liệu sensor
@@ -340,8 +341,8 @@ class MQTTClient:
                     "unit": sensor_data.get("unit", ""),
                     "pin": sensor_data.get("pin", 0),
                     "enabled": True,
-                    "created_at": datetime.utcnow(),
-                    "updated_at": datetime.utcnow()
+                    "created_at": get_vietnam_now_naive(),
+                    "updated_at": get_vietnam_now_naive()
                 }
                 # Tự động set ngưỡng mặc định
                 default_min, default_max = get_default_thresholds(sensor_type)
@@ -367,7 +368,7 @@ class MQTTClient:
                         needs_update = True
                     
                     if needs_update:
-                        update_data["updated_at"] = datetime.utcnow()
+                        update_data["updated_at"] = get_vietnam_now_naive()
                         sensors_collection.update_one(
                             {"_id": sensor_id, "device_id": device_id},
                             {"$set": update_data}
@@ -404,7 +405,7 @@ class MQTTClient:
                 
                 # Thời gian tối thiểu giữa các notification (5 phút)
                 notification_cooldown_minutes = 5
-                cooldown_time = datetime.utcnow() - timedelta(minutes=notification_cooldown_minutes)
+                cooldown_time = get_vietnam_now_naive() - timedelta(minutes=notification_cooldown_minutes)
                 
                 for user_id in user_ids:
                     # Kiểm tra xem đã có notification chưa đọc cho sensor này trong khoảng thời gian gần đây chưa
@@ -474,7 +475,7 @@ class MQTTClient:
             # Cập nhật trạng thái device thành online
             devices_collection.update_one(
                 {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": datetime.utcnow()}}
+                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
             )
             
             # Xử lý sensors
@@ -493,7 +494,7 @@ class MQTTClient:
                         
                         # Nếu sensor chưa tồn tại, tự động tạo sensor mới
                         if not sensor:
-                            logger.info(f"⚠️ Sensor {sensor_id} chưa tồn tại, đang tự động tạo sensor mới cho device {device_id}")
+                            logger.info(f"Sensor {sensor_id} chưa tồn tại, đang tự động tạo sensor mới cho device {device_id}")
                             from models.sensor_models import get_default_thresholds
                             # Tự động xác định loại sensor từ tên hoặc giá trị
                             sensor_type = sensor_data_item.get("type", "temperature")  # Mặc định là temperature
@@ -515,8 +516,8 @@ class MQTTClient:
                                 "unit": sensor_data_item.get("unit", ""),
                                 "pin": sensor_data_item.get("pin", 0),
                                 "enabled": True,
-                                "created_at": datetime.utcnow(),
-                                "updated_at": datetime.utcnow()
+                                "created_at": get_vietnam_now_naive(),
+                                "updated_at": get_vietnam_now_naive()
                             }
                             # Tự động set ngưỡng mặc định
                             default_min, default_max = get_default_thresholds(sensor_type)
@@ -527,9 +528,9 @@ class MQTTClient:
                             try:
                                 sensors_collection.insert_one(new_sensor)
                                 sensor = new_sensor
-                                logger.info(f"✅ Đã tự động tạo sensor: {sensor_id} (type: {sensor_type}) với ngưỡng mặc định")
+                                logger.info(f"Đã tự động tạo sensor: {sensor_id} (type: {sensor_type}) với ngưỡng mặc định")
                             except Exception as e:
-                                logger.error(f"❌ Lỗi tạo sensor {sensor_id}: {str(e)}")
+                                logger.error(f"Lỗi tạo sensor {sensor_id}: {str(e)}")
                                 # Vẫn tiếp tục lưu dữ liệu dù không tạo được sensor
                                 sensor = None
                         
@@ -563,7 +564,7 @@ class MQTTClient:
                                 
                                 # Thời gian tối thiểu giữa các notification (5 phút)
                                 notification_cooldown_minutes = 5
-                                cooldown_time = datetime.utcnow() - timedelta(minutes=notification_cooldown_minutes)
+                                cooldown_time = get_vietnam_now_naive() - timedelta(minutes=notification_cooldown_minutes)
                                 
                                 for user_id in user_ids:
                                     # Kiểm tra xem đã có notification chưa đọc cho sensor này trong khoảng thời gian gần đây chưa
@@ -596,9 +597,9 @@ class MQTTClient:
                             from models.data_models import create_sensor_data_dict
                             sensor_data_dict = create_sensor_data_dict(sensor_id, sensor_value, device_id=device_id)
                             sensor_data_collection.insert_one(sensor_data_dict)
-                            logger.info(f"✅ Đã lưu dữ liệu sensor: {sensor_id} = {sensor_value} vào database")
+                            logger.info(f"Đã lưu dữ liệu sensor: {sensor_id} = {sensor_value} vào database")
                         except Exception as e:
-                            logger.error(f"❌ Lỗi lưu dữ liệu sensor {sensor_id}: {str(e)}")
+                            logger.error(f"Lỗi lưu dữ liệu sensor {sensor_id}: {str(e)}")
                             logger.error(traceback.format_exc())
             
             # Xử lý actuators (cập nhật state)
@@ -616,7 +617,7 @@ class MQTTClient:
                         
                         # Nếu actuator chưa tồn tại, tự động tạo actuator mới
                         if not actuator:
-                            logger.info(f"⚠️ Actuator {actuator_id} chưa tồn tại, đang tự động tạo actuator mới cho device {device_id}")
+                            logger.info(f"Actuator {actuator_id} chưa tồn tại, đang tự động tạo actuator mới cho device {device_id}")
                             # Tự động xác định loại actuator từ tên hoặc mặc định là relay
                             actuator_type = actuator_data.get("type", "relay")  # Mặc định là relay
                             if "motor" in actuator_id.lower() or "dong_co" in actuator_id.lower():
@@ -635,15 +636,15 @@ class MQTTClient:
                                 "pin": actuator_data.get("pin", 0),
                                 "state": bool(state),
                                 "enabled": True,
-                                "created_at": datetime.utcnow(),
-                                "updated_at": datetime.utcnow()
+                                "created_at": get_vietnam_now_naive(),
+                                "updated_at": get_vietnam_now_naive()
                             }
                             try:
                                 actuators_collection.insert_one(new_actuator)
                                 actuator = new_actuator
-                                logger.info(f"✅ Đã tự động tạo actuator: {actuator_id} (type: {actuator_type}) với state: {state}")
+                                logger.info(f"Đã tự động tạo actuator: {actuator_id} (type: {actuator_type}) với state: {state}")
                             except Exception as e:
-                                logger.error(f"❌ Lỗi tạo actuator {actuator_id}: {str(e)}")
+                                logger.error(f"Lỗi tạo actuator {actuator_id}: {str(e)}")
                                 logger.error(traceback.format_exc())
                                 # Vẫn tiếp tục cập nhật state dù không tạo được actuator
                                 actuator = None
@@ -652,14 +653,14 @@ class MQTTClient:
                         try:
                             result = actuators_collection.update_one(
                                 {"_id": actuator_id, "device_id": device_id},
-                                {"$set": {"state": bool(state), "updated_at": datetime.utcnow()}}
+                                {"$set": {"state": bool(state), "updated_at": get_vietnam_now_naive()}}
                             )
                             if result.modified_count > 0:
-                                logger.info(f"✅ Đã cập nhật trạng thái actuator: {actuator_id} = {state}")
+                                logger.info(f"Đã cập nhật trạng thái actuator: {actuator_id} = {state}")
                             else:
                                 logger.debug(f"Actuator {actuator_id} state không thay đổi hoặc không tìm thấy")
                         except Exception as e:
-                            logger.error(f"❌ Lỗi cập nhật actuator {actuator_id}: {str(e)}")
+                            logger.error(f"Lỗi cập nhật actuator {actuator_id}: {str(e)}")
                             logger.error(traceback.format_exc())
             
             logger.info(f"Đã xử lý dữ liệu thiết bị cho device: {device_id}")
@@ -681,7 +682,7 @@ class MQTTClient:
             # Format: {"status": "online", "battery": 75}
             update_data = {
                 "status": status,
-                "updated_at": datetime.utcnow()
+                "updated_at": get_vietnam_now_naive()
             }
             
             # Thêm battery nếu có
@@ -708,7 +709,7 @@ class MQTTClient:
         try:
             # Tạo MQTT client (sử dụng v3.1.1 cho tương thích tốt hơn)
             self.client = mqtt.Client(
-                client_id=f"iot_backend_{int(datetime.now().timestamp())}",
+                client_id=f"iot_backend_{int(get_vietnam_now_naive().timestamp())}",
                 protocol=mqtt.MQTTv311
             )
             
@@ -844,7 +845,7 @@ class MQTTClient:
                         "type": data.get("type", existing_device.get("type")),
                         "ip": data.get("ip", existing_device.get("ip", "")),
                         "status": "online",
-                        "updated_at": datetime.utcnow()
+                        "updated_at": get_vietnam_now_naive()
                     }
                     devices_collection.update_one({"_id": device_id}, {"$set": update_data})
                 else:
@@ -903,8 +904,8 @@ class MQTTClient:
                         "unit": sensor_unit,
                         "pin": sensor_info.get("pin", 0),
                         "enabled": True,
-                        "created_at": datetime.utcnow(),
-                        "updated_at": datetime.utcnow()
+                        "created_at": get_vietnam_now_naive(),
+                        "updated_at": get_vietnam_now_naive()
                     }
                     # Tự động set ngưỡng mặc định dựa trên type
                     default_min, default_max = get_default_thresholds(sensor_type)
@@ -946,7 +947,7 @@ class MQTTClient:
                             needs_update = True
                         
                         if needs_update:
-                            update_data["updated_at"] = datetime.utcnow()
+                            update_data["updated_at"] = get_vietnam_now_naive()
                             sensors_collection.update_one(
                                 {"_id": sensor_id, "device_id": device_id},
                                 {"$set": update_data}

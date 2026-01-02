@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from utils.database import actuators_collection, devices_collection, user_room_devices_collection, sanitize_for_json
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Actuator not found",
+                    "message": "Không tìm thấy thiết bị điều khiển",
                     "data": None
                 }
             )
@@ -39,7 +40,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -49,7 +50,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found",
+                    "message": "Không tìm thấy thiết bị",
                     "data": None
                 }
             )
@@ -58,7 +59,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": "Device is disabled. Please enable device first.",
+                    "message": "Thiết bị đã bị tắt. Vui lòng bật thiết bị trước.",
                     "data": None
                 }
             )
@@ -66,7 +67,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
         # Cập nhật state
         actuators_collection.update_one(
             {"_id": actuator_id},
-            {"$set": {"state": state, "updated_at": datetime.utcnow()}}
+            {"$set": {"state": state, "updated_at": get_vietnam_now_naive()}}
         )
 
         # Gửi command qua MQTT
@@ -90,7 +91,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": f"Actuator {'turned on' if state else 'turned off'} successfully",
+                "message": f"Thiết bị điều khiển đã được {'bật' if state else 'tắt'} thành công",
                 "data": {"actuator_id": actuator_id, "state": state}
             }
         )
@@ -101,7 +102,7 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -125,7 +126,7 @@ def update_actuator(actuator_id: str, name: str = None, pin: int = None, enabled
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Actuator not found",
+                    "message": "Không tìm thấy thiết bị điều khiển",
                     "data": None
                 }
             )
@@ -140,13 +141,13 @@ def update_actuator(actuator_id: str, name: str = None, pin: int = None, enabled
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
 
         # Cập nhật thông tin
-        update_data = {"updated_at": datetime.utcnow()}
+        update_data = {"updated_at": get_vietnam_now_naive()}
         
         if name is not None:
             update_data["name"] = name
@@ -166,7 +167,7 @@ def update_actuator(actuator_id: str, name: str = None, pin: int = None, enabled
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Actuator updated successfully",
+                "message": "Cập nhật thiết bị điều khiển thành công",
                 "data": {"actuator_id": actuator_id, "name": name, "pin": pin, "enabled": enabled}
             }
         )
@@ -177,7 +178,7 @@ def update_actuator(actuator_id: str, name: str = None, pin: int = None, enabled
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -193,7 +194,7 @@ def get_actuators_by_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Actuators retrieved successfully",
+                "message": "Lấy danh sách thiết bị điều khiển thành công",
                 "data": {"actuators": sanitize_for_json(actuators)}
             }
         )
@@ -203,7 +204,7 @@ def get_actuators_by_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )

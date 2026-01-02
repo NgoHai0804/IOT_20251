@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from utils.database import sensors_collection, devices_collection, user_room_devices_collection, sanitize_for_json
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 import logging
 
 logger = logging.getLogger(__name__)
@@ -24,7 +25,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Sensor not found",
+                    "message": "Không tìm thấy cảm biến",
                     "data": None
                 }
             )
@@ -39,7 +40,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -48,7 +49,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
         # Cập nhật enabled
         sensors_collection.update_one(
             {"_id": sensor_id},
-            {"$set": {"enabled": enabled, "updated_at": datetime.utcnow()}}
+            {"$set": {"enabled": enabled, "updated_at": get_vietnam_now_naive()}}
         )
 
         # Gửi command qua MQTT
@@ -72,7 +73,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": f"Sensor {'enabled' if enabled else 'disabled'} successfully",
+                "message": f"Cảm biến đã được {'bật' if enabled else 'tắt'} thành công",
                 "data": {"sensor_id": sensor_id, "enabled": enabled}
             }
         )
@@ -83,7 +84,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -99,7 +100,7 @@ def get_sensors_by_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Sensors retrieved successfully",
+                "message": "Lấy danh sách cảm biến thành công",
                 "data": {"sensors": sanitize_for_json(sensors)}
             }
         )
@@ -109,7 +110,7 @@ def get_sensors_by_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -144,7 +145,7 @@ def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Sensor not found",
+                    "message": "Không tìm thấy cảm biến",
                     "data": None
                 }
             )
@@ -159,7 +160,7 @@ def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -171,13 +172,13 @@ def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": f"Invalid sensor type. Must be one of: {', '.join(valid_types)}",
+                    "message": f"Loại cảm biến không hợp lệ. Phải là một trong: {', '.join(valid_types)}",
                     "data": None
                 }
             )
 
         # Cập nhật thông tin
-        update_data = {"updated_at": datetime.utcnow()}
+        update_data = {"updated_at": get_vietnam_now_naive()}
         
         if name is not None:
             update_data["name"] = name
@@ -208,7 +209,7 @@ def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Sensor updated successfully",
+                "message": "Cập nhật cảm biến thành công",
                 "data": updated_sensor
             }
         )
@@ -219,7 +220,7 @@ def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -242,7 +243,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Sensor not found",
+                    "message": "Không tìm thấy cảm biến",
                     "data": None
                 }
             )
@@ -257,7 +258,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -274,7 +275,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
             )
 
         # Cập nhật thresholds
-        update_data = {"updated_at": datetime.utcnow()}
+        update_data = {"updated_at": get_vietnam_now_naive()}
         unset_data = {}
         
         if min_threshold is None:
@@ -302,7 +303,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Sensor thresholds updated successfully",
+                "message": "Cập nhật ngưỡng cảm biến thành công",
                 "data": {"sensor_id": sensor_id, "min_threshold": min_threshold, "max_threshold": max_threshold}
             }
         )
@@ -313,7 +314,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )

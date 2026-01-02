@@ -1,6 +1,7 @@
 # device_models.py
 import uuid
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32", ip: str = "", status: str = "offline", enabled: bool = True, device_password: str = None, location: str = None, note: str = None) -> dict:
@@ -28,8 +29,8 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
         "status": status,
         "ip": ip,
         "enabled": enabled,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive(),
+        "updated_at": get_vietnam_now_naive()
     }
     
     # Thêm device_password nếu có
@@ -51,5 +52,5 @@ def create_user_device_dict(user_id: str, device_id: str) -> dict:
     return {
         "user_id": user_id,
         "device_id": device_id,
-        "created_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive()
     }

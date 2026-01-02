@@ -5,6 +5,7 @@ from models.device_models import create_user_device_dict
 from models.user_room_device_models import create_user_room_device_dict
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 import logging
 
 logger = logging.getLogger(__name__)
@@ -114,7 +115,7 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
             if existing_link.get("room_id") != room_id:
                 user_room_devices_collection.update_one(
                     {"user_id": user_id, "device_id": device_id},
-                    {"$set": {"room_id": room_id, "updated_at": datetime.utcnow()}}
+                    {"$set": {"room_id": room_id, "updated_at": get_vietnam_now_naive()}}
                 )
                 logger.info(f"Đã cập nhật liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
             else:
@@ -392,7 +393,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
                 # Cập nhật room_id
                 user_room_devices_collection.update_one(
                     {"user_id": user_id, "device_id": id_device},
-                    {"$set": {"room_id": room_id_to_set, "updated_at": datetime.utcnow()}}
+                    {"$set": {"room_id": room_id_to_set, "updated_at": get_vietnam_now_naive()}}
                 )
                 logger.info(f"Đã cập nhật liên kết user-room-device: user={user_id}, device={id_device}, room_id={room_id_to_set}")
             else:
@@ -438,7 +439,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
         new_cloud_status = update_fields.get("cloud_status")
         
         # Thêm thời gian cập nhật
-        update_fields["updated_at"] = datetime.utcnow()
+        update_fields["updated_at"] = get_vietnam_now_naive()
 
         # Cập nhật thiết bị (tìm bằng _id)
         result = devices_collection.update_one(

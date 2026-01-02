@@ -1,6 +1,7 @@
 # app/models/notification_models.py
 import uuid
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_notification_dict(user_id: str, sensor_id: str, type_: str, message: str, note: str = "", read: bool = False) -> dict:
@@ -25,5 +26,5 @@ def create_notification_dict(user_id: str, sensor_id: str, type_: str, message: 
         "message": message,
         "note": note,
         "read": read,
-        "created_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive()
     }

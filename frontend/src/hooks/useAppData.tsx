@@ -483,7 +483,7 @@ export function useAppData(): AppContextType {
     try {
       setIsToggling(true);
       await newSensorAPI.controlSensorEnable(sensorId, enabled);
-      toast.success(`Sensor ${enabled ? 'enabled' : 'disabled'}`, { duration: 1000 });
+      toast.success(`Cảm biến đã ${enabled ? 'bật' : 'tắt'}`, { duration: 1000 });
       
       // Chỉ cập nhật state local, không reload API
       setSensors(prevSensors => 

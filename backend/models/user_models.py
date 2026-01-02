@@ -1,6 +1,7 @@
 # app/models/user_models.py
 import uuid
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_user_dict(full_name: str, email: str, password_hash: str, phone: str = "") -> dict:
@@ -10,6 +11,6 @@ def create_user_dict(full_name: str, email: str, password_hash: str, phone: str 
         "email": email,
         "password_hash": password_hash,
         "phone": phone,
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": get_vietnam_now_naive().isoformat(),
         "is_active": True
     }

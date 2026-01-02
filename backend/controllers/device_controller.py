@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from utils.database import devices_collection, user_devices_collection, user_room_devices_collection, rooms_collection, sensors_collection, actuators_collection, sanitize_for_json
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
+from utils.timezone import get_vietnam_now_naive
 import logging
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found",
+                    "message": "Không tìm thấy thiết bị",
                     "data": None
                 }
             )
@@ -39,7 +40,7 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -47,7 +48,7 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
         # Cập nhật enabled
         devices_collection.update_one(
             {"_id": device_id},
-            {"$set": {"enabled": enabled, "updated_at": datetime.utcnow()}}
+            {"$set": {"enabled": enabled, "updated_at": get_vietnam_now_naive()}}
         )
 
         # Gửi command qua MQTT
@@ -77,7 +78,7 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": f"Device {'enabled' if enabled else 'disabled'} successfully",
+                "message": f"Thiết bị đã được {'bật' if enabled else 'tắt'} thành công",
                 "data": {"device_id": device_id, "enabled": enabled}
             }
         )
@@ -88,7 +89,7 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -105,7 +106,7 @@ def get_device(device_id: str, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found",
+                    "message": "Không tìm thấy thiết bị",
                     "data": None
                 }
             )
@@ -118,7 +119,7 @@ def get_device(device_id: str, user_id: str = None):
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -127,7 +128,7 @@ def get_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Device retrieved successfully",
+                "message": "Lấy thông tin thiết bị thành công",
                 "data": sanitize_for_json(device)
             }
         )
@@ -137,7 +138,7 @@ def get_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -154,7 +155,7 @@ def get_device_detail(device_id: str, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found",
+                    "message": "Không tìm thấy thiết bị",
                     "data": None
                 }
             )
@@ -167,7 +168,7 @@ def get_device_detail(device_id: str, user_id: str = None):
                     status_code=status.HTTP_403_FORBIDDEN,
                     content={
                         "status": False,
-                        "message": "Access denied: Device does not belong to user",
+                        "message": "Truy cập bị từ chối: Thiết bị không thuộc về người dùng này",
                         "data": None
                     }
                 )
@@ -188,18 +189,18 @@ def get_device_detail(device_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Device detail retrieved successfully",
+                "message": "Lấy thông tin chi tiết thiết bị thành công",
                 "data": sanitize_for_json(device)
             }
         )
 
     except Exception as e:
-        logger.error(f"Error getting device detail: {str(e)}")
+        logger.error(f"Lỗi khi lấy thông tin chi tiết thiết bị: {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -216,7 +217,7 @@ def get_all_devices(user_id: str = None):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": "user_id is required",
+                    "message": "Cần có user_id",
                     "data": None
                 }
             )
@@ -230,7 +231,7 @@ def get_all_devices(user_id: str = None):
                 status_code=status.HTTP_200_OK,
                 content={
                     "status": True,
-                    "message": "No devices found for this user",
+                    "message": "Không tìm thấy thiết bị nào cho người dùng này",
                     "data": {"devices": []}
                 }
             )
@@ -288,18 +289,18 @@ def get_all_devices(user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Devices retrieved successfully",
+                "message": "Lấy danh sách thiết bị thành công",
                 "data": {"devices": sanitize_for_json(devices)}
             }
         )
 
     except Exception as e:
-        logger.error(f"Error in get_all_devices: {str(e)}")
+        logger.error(f"Lỗi khi lấy danh sách thiết bị: {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -319,7 +320,7 @@ def get_devices_by_room(room_id: str, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Room not found",
+                    "message": "Không tìm thấy phòng",
                     "data": None
                 }
             )
@@ -330,7 +331,7 @@ def get_devices_by_room(room_id: str, user_id: str = None):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": "user_id is required",
+                    "message": "Cần có user_id",
                     "data": None
                 }
             )
@@ -345,7 +346,7 @@ def get_devices_by_room(room_id: str, user_id: str = None):
                 status_code=status.HTTP_200_OK,
                 content={
                     "status": True,
-                    "message": "Devices retrieved successfully",
+                    "message": "Lấy danh sách thiết bị thành công",
                     "data": {"devices": []}
                 }
             )
@@ -360,7 +361,7 @@ def get_devices_by_room(room_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Devices retrieved successfully",
+                "message": "Lấy danh sách thiết bị thành công",
                 "data": {"devices": sanitize_for_json(devices)}
             }
         )
@@ -370,7 +371,7 @@ def get_devices_by_room(room_id: str, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -393,7 +394,7 @@ def delete_device(device_id: str, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found",
+                    "message": "Không tìm thấy thiết bị",
                     "data": None
                 }
             )
@@ -404,7 +405,7 @@ def delete_device(device_id: str, user_id: str = None):
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": "User ID is required",
+                    "message": "Cần có ID người dùng",
                     "data": None
                 }
             )
@@ -416,7 +417,7 @@ def delete_device(device_id: str, user_id: str = None):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Device not found in user's rooms",
+                    "message": "Không tìm thấy thiết bị trong phòng của người dùng",
                     "data": None
                 }
             )
@@ -435,7 +436,7 @@ def delete_device(device_id: str, user_id: str = None):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 content={
                     "status": False,
-                    "message": "Failed to remove device link",
+                    "message": "Không thể xóa liên kết thiết bị",
                     "data": None
                 }
             )
@@ -446,7 +447,7 @@ def delete_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Device link removed successfully (device still exists)",
+                "message": "Đã xóa liên kết thiết bị thành công (thiết bị vẫn tồn tại)",
                 "data": {
                     "device_id": device_id,
                     "links_removed": deleted_count
@@ -460,7 +461,7 @@ def delete_device(device_id: str, user_id: str = None):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )

@@ -1,6 +1,7 @@
 # sensor_models.py
 from datetime import datetime
 import uuid
+from utils.timezone import get_vietnam_now_naive
 
 
 def get_default_thresholds(sensor_type: str) -> tuple[float | None, float | None]:
@@ -71,8 +72,8 @@ def create_sensor_dict(device_id: str, sensor_type: str, name: str, unit: str = 
         "unit": unit,
         "pin": pin,
         "enabled": enabled,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive(),
+        "updated_at": get_vietnam_now_naive()
     }
     
     # Tự động set ngưỡng mặc định nếu chưa có và auto_set_threshold = True

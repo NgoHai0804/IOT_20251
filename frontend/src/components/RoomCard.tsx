@@ -45,62 +45,52 @@ const RoomCardComponent = function RoomCard({
   const [refreshTrigger, setRefreshTrigger] = useState(0); // Force refresh trigger
   const [averagedSensors, setAveragedSensors] = useState<Sensor[]>([]); // Lưu averaged_sensors từ API
   const lastRoomIdRef = useRef<string | null>(null);
-  const hasFetchedDetailsRef = useRef(false); // Track đã fetch detail chưa
-  const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null); // Debounce updates
+  const hasFetchedDetailsRef = useRef(false);
+  const updateTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
-  // Helper function to refresh room details (chỉ khi cần thiết, với debounce)
   const refreshRoomDetails = useCallback(async () => {
-    // Clear existing timeout
     if (updateTimeoutRef.current) {
       clearTimeout(updateTimeoutRef.current);
     }
     
-    // Debounce updates to prevent rapid successive calls
     updateTimeoutRef.current = setTimeout(async () => {
-      try {
-        // Kiểm tra xem có cần fetch mới không
-        const currentDevices = roomDevicesCache.getCachedDevices(room._id);
-        
-        const roomData = await roomAPI.getRoomDetails(room._id);
-        
-        if (roomData.devices) {
-          // So sánh với dữ liệu hiện tại để tránh update không cần thiết
-          const hasChanges = !currentDevices || 
-            currentDevices.length !== roomData.devices.length ||
-            currentDevices.some((device, index) => {
-              const newDevice = roomData.devices[index];
-              return !newDevice || 
-                device._id !== newDevice._id || 
-                device.enabled !== newDevice.enabled ||
-                device.name !== newDevice.name ||
-                device.status !== newDevice.status;
-            });
+        try {
+          const currentDevices = roomDevicesCache.getCachedDevices(room._id);
+          const roomData = await roomAPI.getRoomDetails(room._id);
           
-          if (hasChanges) {
-            const wasUpdated = roomDevicesCache.setDevices(room._id, roomData.devices);
+          if (roomData.devices) {
+            const hasChanges = !currentDevices || 
+              currentDevices.length !== roomData.devices.length ||
+              currentDevices.some((device, index) => {
+                const newDevice = roomData.devices[index];
+                return !newDevice || 
+                  device._id !== newDevice._id || 
+                  device.enabled !== newDevice.enabled ||
+                  device.name !== newDevice.name ||
+                  device.status !== newDevice.status;
+              });
             
-            // Chỉ update state và dispatch event nếu cache thực sự thay đổi
-            if (wasUpdated) {
-              setRoomDevices(roomData.devices);
-              setRefreshTrigger(prev => prev + 1); // Force refresh
+            if (hasChanges) {
+              const wasUpdated = roomDevicesCache.setDevices(room._id, roomData.devices);
               
-              // Dispatch event để các component khác biết
-              window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
-                detail: { devices: roomData.devices } 
-              }));
-              
-              // Dispatch room control completion event
-              window.dispatchEvent(new CustomEvent(`room-control-completed-${room._id}`));
+              if (wasUpdated) {
+                setRoomDevices(roomData.devices);
+                setRefreshTrigger(prev => prev + 1);
+                
+                window.dispatchEvent(new CustomEvent(`room-devices-updated-${room._id}`, { 
+                  detail: { devices: roomData.devices } 
+                }));
+                
+                window.dispatchEvent(new CustomEvent(`room-control-completed-${room._id}`));
+              }
             }
           }
+        } catch (error) {
+          console.error('Error refreshing room details:', error);
         }
-      } catch (error) {
-        console.error('Error refreshing room details:', error);
-      }
-    }, 100); // 100ms debounce
+      }, 100);
   }, [room._id]);
   
-  // Mỗi RoomCard kiểm tra và sử dụng dữ liệu có sẵn thay vì tự fetch
   useEffect(() => {
     const roomId = room._id;
     if (!roomId) {
@@ -111,51 +101,43 @@ const RoomCardComponent = function RoomCard({
       return;
     }
     
-    // Nếu roomId thay đổi, reset flag và state
     if (lastRoomIdRef.current !== roomId) {
       lastRoomIdRef.current = roomId;
       hasFetchedDetailsRef.current = false;
       setAveragedSensors([]);
     }
     
-    // Nếu room đã có averaged_sensors từ props, sử dụng luôn
     if (room.averaged_sensors && Array.isArray(room.averaged_sensors) && room.averaged_sensors.length > 0) {
       setAveragedSensors(room.averaged_sensors);
     }
     
-    // Kiểm tra cache trước khi fetch
     const cached = roomDevicesCache.getCachedDevices(roomId);
     if (cached && cached.length > 0 && !hasFetchedDetailsRef.current) {
       setRoomDevices(cached);
       setRefreshTrigger(prev => prev + 1);
     }
     
-    // Luôn fetch room details để có dữ liệu chính xác từ API
     if (!hasFetchedDetailsRef.current && isOnRoomsPage) {
       hasFetchedDetailsRef.current = true;
       setIsLoading(true);
       
       roomAPI.getRoomDetails(roomId)
         .then((roomData) => {
-          // Cập nhật devices vào cache và state từ room details API
           const devices = roomData.devices || [];
           roomDevicesCache.setDevices(roomId, devices);
           setRoomDevices(devices);
-          setRefreshTrigger(prev => prev + 1); // Force refresh
+          setRefreshTrigger(prev => prev + 1);
           
-          // Cập nhật averaged_sensors từ API response
           if (roomData.averaged_sensors && Array.isArray(roomData.averaged_sensors)) {
             setAveragedSensors(roomData.averaged_sensors);
           }
           
-          // Dispatch event để các component khác biết
           window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
             detail: { devices } 
           }));
         })
         .catch((error) => {
           console.error(`Error fetching room details for ${roomId}:`, error);
-          // Set empty array nếu có lỗi
           setRoomDevices([]);
           setRefreshTrigger(prev => prev + 1);
         })
@@ -165,7 +147,6 @@ const RoomCardComponent = function RoomCard({
     }
   }, [room._id, room.devices, isOnRoomsPage]);
   
-  // Refresh devices khi có update - sử dụng custom event (chỉ khi thực sự cần)
   const isRefreshingRef = useRef(false);
   useEffect(() => {
     if (!room._id) return;
@@ -173,7 +154,6 @@ const RoomCardComponent = function RoomCard({
     const handleRoomUpdate = async () => {
       const roomId = room._id;
       
-      // Tránh gọi trùng lặp
       if (isRefreshingRef.current) {
         return;
       }
@@ -181,10 +161,8 @@ const RoomCardComponent = function RoomCard({
       isRefreshingRef.current = true;
       
       try {
-        // Thay vì invalidate cache và fetch lại, chỉ fetch nếu cần thiết
         const currentCached = roomDevicesCache.getCachedDevices(roomId);
         
-        // Chỉ fetch nếu cache rỗng hoặc dữ liệu cũ
         if (!currentCached || currentCached.length === 0) {
           setIsLoading(true);
           const roomData = await roomAPI.getRoomDetails(roomId);
@@ -192,19 +170,16 @@ const RoomCardComponent = function RoomCard({
           roomDevicesCache.setDevices(roomId, devices);
           setRoomDevices(devices);
           
-          // Cập nhật averaged_sensors từ API response
           if (roomData.averaged_sensors && Array.isArray(roomData.averaged_sensors)) {
             setAveragedSensors(roomData.averaged_sensors);
           }
           
           setRefreshTrigger(prev => prev + 1);
           
-          // Dispatch event để các component khác biết đã update
           window.dispatchEvent(new CustomEvent(`room-devices-updated-${roomId}`, { 
             detail: { devices } 
           }));
         } else {
-          // Sử dụng dữ liệu cache hiện có
           setRoomDevices(currentCached);
           setRefreshTrigger(prev => prev + 1);
         }
@@ -216,30 +191,18 @@ const RoomCardComponent = function RoomCard({
       }
     };
     
-    // Listen for room update events
     const eventName = `room-update-${room._id}`;
     window.addEventListener(eventName, handleRoomUpdate);
     
     return () => {
       window.removeEventListener(eventName, handleRoomUpdate);
-      // Cleanup timeout on unmount
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
     };
   }, [room._id]);
   
-  // Đếm số thiết bị đang hoạt động
-  const activeDevices = useMemo(() => {
-    const activeCount = roomDevices.filter(d => {
-      // Kiểm tra enabled trực tiếp, nếu không có thì mặc định là false
-      return d.enabled === true;
-    }).length;
-    
-    return activeCount;
-  }, [roomDevices, refreshTrigger]); // Add refreshTrigger to dependencies
 
-  // Lắng nghe event để cập nhật averaged_sensors khi Rooms component fetch room details
   useEffect(() => {
     if (!room._id) return;
     
@@ -258,19 +221,15 @@ const RoomCardComponent = function RoomCard({
     };
   }, [room._id]);
 
-  // Lấy sensors đã được tính trung bình từ backend (từ trường averaged_sensors)
   const roomSensors = useMemo(() => {
-    // Ưu tiên lấy từ state local (từ API response)
     if (averagedSensors.length > 0) {
       return averagedSensors;
     }
     
-    // Fallback: lấy từ room.averaged_sensors (từ props)
     if (room.averaged_sensors && Array.isArray(room.averaged_sensors) && room.averaged_sensors.length > 0) {
       return room.averaged_sensors;
     }
     
-    // Fallback: lấy từ devices nếu không có averaged_sensors
     const allSensors: Sensor[] = [];
     if (room.devices && Array.isArray(room.devices)) {
       room.devices.forEach((device: any) => {
@@ -280,7 +239,6 @@ const RoomCardComponent = function RoomCard({
       });
     }
     
-    // Fallback: lấy từ roomDevices nếu có
     if (allSensors.length === 0 && roomDevices.length > 0) {
       roomDevices.forEach((device: any) => {
         if (device.sensors && Array.isArray(device.sensors)) {
@@ -289,7 +247,6 @@ const RoomCardComponent = function RoomCard({
       });
     }
     
-    // Fallback: lấy từ props sensors nếu có (tương thích với cấu trúc cũ)
     if (allSensors.length === 0 && sensors && sensors.length > 0) {
       return sensors;
     }
@@ -297,23 +254,12 @@ const RoomCardComponent = function RoomCard({
     return allSensors;
   }, [averagedSensors, room.averaged_sensors, room.devices, roomDevices, sensors]);
 
-  // Sử dụng sensors từ room details API (sensors đã nằm trong devices)
-  // Room details API đã tự động lấy sensor data mới nhất
-  const rawSensors = useMemo(() => {
-    return roomSensors;
-  }, [roomSensors]);
-
-  // Nhóm sensors theo type và tính trung bình dựa vào thời gian
-  // Backend đã tính trung bình rồi, FE chỉ cần hiển thị
   const displaySensors = useMemo(() => {
-    if (!rawSensors || rawSensors.length === 0) {
+    if (!roomSensors || roomSensors.length === 0) {
       return [];
     }
-
-    // Backend đã tính trung bình và nhóm theo type rồi
-    // Chỉ cần trả về sensors từ backend
-    return rawSensors;
-  }, [rawSensors]);
+    return roomSensors;
+  }, [roomSensors]);
 
   return (
     <div
@@ -410,24 +356,8 @@ const RoomCardComponent = function RoomCard({
 
         {/* Stats */}
         <div className="mb-2">
-          <div className="flex items-center justify-between mb-2 p-2 rounded-lg bg-slate-800/40 border border-cyan-500/20">
-            <div className="flex items-center gap-2">
-              <div className={`w-2 h-2 rounded-full transition-all duration-300 ${
-                activeDevices > 0 
-                  ? 'bg-green-400 animate-pulse shadow-lg shadow-green-400/50' 
-                  : 'bg-slate-500'
-              }`} />
-              <p className="text-cyan-200/70 text-sm font-medium">Thiết bị hoạt động</p>
-            </div>
-            <p className={`font-bold text-base transition-colors duration-300 ${
-              activeDevices > 0 ? 'text-green-400' : 'text-white'
-            }`}>
-              {activeDevices}/{roomDevices.length}
-            </p>
-          </div>
-          
           {/* Room Control */}
-          {onRoomControl && roomDevices.length > 0 && (
+          {onRoomControl && (
             <div className="flex items-center gap-2">
               <Button
                 size="sm"
@@ -443,16 +373,14 @@ const RoomCardComponent = function RoomCard({
                     // Call room control
                     await onRoomControl(room._id, 'on');
                     
-                    // Immediate optimistic update - assume all devices will be enabled
-                    const optimisticDevices = roomDevices.map(device => ({
+                    const updatedDevices = roomDevices.map(device => ({
                       ...device,
                       enabled: true
                     }));
-                    setRoomDevices(optimisticDevices);
+                    setRoomDevices(updatedDevices);
                     setRefreshTrigger(prev => prev + 1);
                     
-                    // Auto-refresh room details after control to get actual state
-                    setTimeout(refreshRoomDetails, 500); // Wait 500ms for backend to process
+                    setTimeout(refreshRoomDetails, 500);
                   } catch (error) {
                     console.error('Error controlling room:', error);
                   } finally {
@@ -476,16 +404,14 @@ const RoomCardComponent = function RoomCard({
                     // Call room control
                     await onRoomControl(room._id, 'off');
                     
-                    // Immediate optimistic update - assume all devices will be disabled
-                    const optimisticDevices = roomDevices.map(device => ({
+                    const updatedDevices = roomDevices.map(device => ({
                       ...device,
                       enabled: false
                     }));
-                    setRoomDevices(optimisticDevices);
+                    setRoomDevices(updatedDevices);
                     setRefreshTrigger(prev => prev + 1);
                     
-                    // Auto-refresh room details after control to get actual state
-                    setTimeout(refreshRoomDetails, 500); // Wait 500ms for backend to process
+                    setTimeout(refreshRoomDetails, 500);
                   } catch (error) {
                     console.error('Error controlling room:', error);
                   } finally {
@@ -504,7 +430,7 @@ const RoomCardComponent = function RoomCard({
           <div className="mb-0 pb-2 border-t border-cyan-500/20 pt-2">
             <p className="text-cyan-200/70 text-xs font-medium mb-1.5 uppercase tracking-wide">Cảm biến</p>
             <div className="space-y-1">
-              {displaySensors.map((sensor: Sensor) => {
+              {displaySensors.map((sensor: Sensor, index: number) => {
                 const hasValue = sensor.value !== undefined && sensor.value !== null;
                 const sensorValue = hasValue ? sensor.value : null;
                 const sensorUnit = sensor.unit || '';
@@ -514,41 +440,67 @@ const RoomCardComponent = function RoomCard({
                 );
                 
                 const formatTime = (date: Date | string | undefined) => {
-                  if (!date) return 'N/A';
+                  if (!date) return '--';
                   const dateObj = date instanceof Date ? date : new Date(date);
-                  if (isNaN(dateObj.getTime())) return 'N/A';
+                  if (isNaN(dateObj.getTime())) return '--';
                   
                   const now = new Date();
                   const diff = Math.floor((now.getTime() - dateObj.getTime()) / 1000);
                   
+                  // Vừa xong
+                  if (diff < 10) return 'Vừa xong';
+                  // Giây
                   if (diff < 60) return `${diff}s`;
-                  if (diff < 3600) return `${Math.floor(diff / 60)}m`;
-                  return `${Math.floor(diff / 3600)}h`;
+                  // Phút
+                  if (diff < 3600) {
+                    const minutes = Math.floor(diff / 60);
+                    return `${minutes} phút`;
+                  }
+                  // Giờ
+                  if (diff < 86400) {
+                    const hours = Math.floor(diff / 3600);
+                    return `${hours} giờ`;
+                  }
+                  // Ngày
+                  const days = Math.floor(diff / 86400);
+                  if (days === 1) return 'Hôm qua';
+                  if (days < 7) return `${days} ngày`;
+                  // Quá 7 ngày - hiển thị ngày tháng
+                  return dateObj.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit' });
                 };
+
+                const sensorKey = sensor._id || sensor.id || `sensor-${room._id}-${index}`;
 
                 return (
                   <div 
-                    key={sensor._id} 
-                    className={`bg-slate-800/60 border rounded-lg p-2 transition-all duration-200 hover:bg-slate-800/80 ${
+                    key={sensorKey} 
+                    className={`relative bg-slate-800/60 border rounded-lg p-2 transition-all duration-200 hover:bg-slate-800/80 ${
                       isOverThreshold 
                         ? 'border-red-500/50 bg-red-500/15' 
                         : 'border-cyan-500/30 bg-white/5'
                     }`}
                   >
-                    <div className="flex items-center gap-2 mb-1">
+                    {/* Thời gian ở góc trên bên phải */}
+                    <div className="absolute top-1.5 right-2">
+                      <span className="text-slate-500/70 text-[10px] font-medium">
+                        {formatTime(sensor.lastUpdate)}
+                      </span>
+                    </div>
+                    
+                    {/* Tên sensor */}
+                    <div className="flex items-center gap-1.5 mb-1.5 pr-12">
                       {isOverThreshold && (
                         <span className="text-red-400 text-sm flex-shrink-0">!</span>
                       )}
                       <p className="text-white font-medium text-xs truncate flex-1 min-w-0">{sensor.name}</p>
-                      <span className={`text-lg font-bold ${isOverThreshold ? 'text-red-400' : hasValue ? 'text-white' : 'text-slate-400'}`}>
+                    </div>
+                    
+                    {/* Giá trị và đơn vị */}
+                    <div className="flex items-baseline gap-1.5">
+                      <span className={`text-xl font-bold ${isOverThreshold ? 'text-red-400' : hasValue ? 'text-white' : 'text-slate-400'}`}>
                         {hasValue ? sensorValue!.toFixed(1) : 'N/A'}
                       </span>
-                      {hasValue && <span className="text-cyan-200/70 text-xs">{sensorUnit}</span>}
-                    </div>
-                    <div className="flex items-center justify-end text-xs">
-                      <span className="text-slate-400 flex-shrink-0">
-                        {formatTime(sensor.lastUpdate)}
-                      </span>
+                      {hasValue && <span className="text-cyan-200/70 text-sm">{sensorUnit}</span>}
                     </div>
                   </div>
                 );
@@ -562,7 +514,6 @@ const RoomCardComponent = function RoomCard({
   );
 }
 
-// Utility function để so sánh devices arrays hiệu quả
 const compareDevicesArrays = (devices1?: Device[], devices2?: Device[]): boolean => {
   if (!devices1 && !devices2) return true;
   if (!devices1 || !devices2) return false;
@@ -577,16 +528,13 @@ const compareDevicesArrays = (devices1?: Device[], devices2?: Device[]): boolean
   });
 };
 
-// Memoize component để tránh re-render không cần thiết
 export const RoomCard = React.memo(RoomCardComponent, (prevProps, nextProps) => {
-  // So sánh các props quan trọng để quyết định có re-render không
   return (
     prevProps.room._id === nextProps.room._id &&
     prevProps.room.name === nextProps.room.name &&
     prevProps.room.updated_at === nextProps.room.updated_at &&
     prevProps.isSelected === nextProps.isSelected &&
     prevProps.sensors?.length === nextProps.sensors?.length &&
-    // So sánh devices hiệu quả hơn
     compareDevicesArrays(prevProps.room.devices, nextProps.room.devices)
   );
 });

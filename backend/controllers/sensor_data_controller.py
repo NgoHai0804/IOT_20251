@@ -9,6 +9,7 @@ from utils.database import (
     sanitize_for_json
 )
 from datetime import datetime, timedelta
+from utils.timezone import get_vietnam_now_naive
 from typing import Optional, Dict, List
 from bson import ObjectId
 
@@ -482,7 +483,7 @@ def get_sensor_trends(
         user_id = str(user_data["_id"])
         
         # Tính thời gian bắt đầu
-        start_time = datetime.utcnow() - timedelta(hours=hours)
+        start_time = get_vietnam_now_naive() - timedelta(hours=hours)
         
         # Xây dựng query filter
         query = {

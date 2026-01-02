@@ -37,7 +37,7 @@ def get_notifications(user_id: str, limit: int = 100, unread_only: bool = False)
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Notifications retrieved successfully",
+                "message": "Lấy danh sách thông báo thành công",
                 "data": {"notifications": sanitize_for_json(notifications)}
             }
         )
@@ -48,7 +48,7 @@ def get_notifications(user_id: str, limit: int = 100, unread_only: bool = False)
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -82,7 +82,7 @@ def mark_notification_as_read(user_id: str, notification_id: str):
                 status_code=status.HTTP_404_NOT_FOUND,
                 content={
                     "status": False,
-                    "message": "Notification not found",
+                    "message": "Không tìm thấy thông báo",
                     "data": None
                 }
             )
@@ -97,7 +97,7 @@ def mark_notification_as_read(user_id: str, notification_id: str):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Notification marked as read",
+                "message": "Đã đánh dấu thông báo là đã đọc",
                 "data": {"notification_id": notification_id}
             }
         )
@@ -108,7 +108,7 @@ def mark_notification_as_read(user_id: str, notification_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -129,7 +129,7 @@ def mark_all_notifications_as_read(user_id: str):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "All notifications marked as read",
+                "message": "Tất cả thông báo đã được đánh dấu là đã đọc",
                 "data": {"updated_count": result.modified_count}
             }
         )
@@ -140,7 +140,7 @@ def mark_all_notifications_as_read(user_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )
@@ -161,7 +161,7 @@ def get_unread_count(user_id: str):
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Unread count retrieved successfully",
+                "message": "Lấy số lượng thông báo chưa đọc thành công",
                 "data": {"count": count}
             }
         )
@@ -172,7 +172,7 @@ def get_unread_count(user_id: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "status": False,
-                "message": f"Unexpected error: {str(e)}",
+                "message": f"Lỗi không mong muốn: {str(e)}",
                 "data": None
             }
         )

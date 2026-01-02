@@ -1,6 +1,7 @@
 # actuator_models.py
 from datetime import datetime
 import uuid
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_actuator_dict(device_id: str, actuator_type: str, name: str, pin: int = 0, state: bool = False, enabled: bool = True) -> dict:
@@ -24,6 +25,6 @@ def create_actuator_dict(device_id: str, actuator_type: str, name: str, pin: int
         "pin": pin,
         "state": state,
         "enabled": enabled,
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive(),
+        "updated_at": get_vietnam_now_naive()
     }

@@ -48,15 +48,15 @@ export const ChartsPanel = memo(function ChartsPanel({
     return { data: [], type: 'temperature' as const };
   }, [temperatureData, humidityData, energyData, chartType]);
 
-  const hasData = chartData.data.length > 0;
-  const displayName = sensorName || 'Sensor Data Trends';
+  const hasData = chartData.data && chartData.data.length > 0;
+  const displayName = sensorName || 'Xu hướng dữ liệu cảm biến';
 
   return (
     <Card className="bg-slate-800/60 border-slate-700/80 backdrop-blur-xl h-full flex flex-col shadow-xl">
       <CardHeader className="flex-shrink-0 pb-4">
         <div className="flex items-center justify-between">
           <CardTitle className="text-white text-xl font-bold">{displayName}</CardTitle>
-          {showDaySelector && selectedDays !== undefined && onSelectedDaysChange && (
+          {showDaySelector && selectedDays !== undefined && onSelectedDaysChange && hasData && (
             <div className="flex items-center gap-3">
               <span className="text-cyan-200/70 text-sm font-medium">Khoảng thời gian:</span>
               {([1, 3, 7] as const).map((days) => (
@@ -154,7 +154,7 @@ export const ChartsPanel = memo(function ChartsPanel({
           <div className="h-full flex items-center justify-center text-cyan-200/60">
             <div className="text-center">
               <p className="font-semibold text-lg mb-2">Chưa có dữ liệu</p>
-              <p className="text-sm">Chọn một sensor để xem biểu đồ</p>
+              <p className="text-sm">Chọn một cảm biến để xem biểu đồ</p>
             </div>
           </div>
         )}

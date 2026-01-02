@@ -1,6 +1,7 @@
 # user_room_device_models.py
 from datetime import datetime
 import uuid
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_user_room_device_dict(user_id: str, device_id: str, room_id: str = None) -> dict:
@@ -24,6 +25,6 @@ def create_user_room_device_dict(user_id: str, device_id: str, room_id: str = No
         "user_id": user_id,
         "device_id": device_id,
         "room_id": room_id,  # Có thể None
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
+        "created_at": get_vietnam_now_naive(),
+        "updated_at": get_vietnam_now_naive()
     }

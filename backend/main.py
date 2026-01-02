@@ -63,14 +63,14 @@ if static_dir.exists() and (static_dir / "index.html").exists():
         vite_svg = static_dir / "vite.svg"
         if vite_svg.exists():
             return FileResponse(str(vite_svg))
-        return {"status": False, "message": "Not found", "data": None}
+        return {"status": False, "message": "Không tìm thấy", "data": None}
     
     # Catch-all route để serve SPA (phải đặt sau tất cả API routes)
     @app.get("/{full_path:path}")
     async def serve_frontend(full_path: str):
         # Bỏ qua nếu là API route (đã được xử lý bởi routers ở trên)
         if full_path.startswith(("api/", "users/", "rooms/", "devices/", "sensors/", "actuators/", "sensor-data/", "notifications/", "health", "user-device", "iot-device")):
-            return {"status": False, "message": "Not found", "data": None}
+            return {"status": False, "message": "Không tìm thấy", "data": None}
         
         # Serve file static nếu tồn tại
         file_path = static_dir / full_path
@@ -82,7 +82,7 @@ if static_dir.exists() and (static_dir / "index.html").exists():
         if index_file.exists():
             return FileResponse(str(index_file))
         
-        return {"status": False, "message": "Not found", "data": None}
+        return {"status": False, "message": "Không tìm thấy", "data": None}
 
 # Endpoint gốc
 @app.get("/")
@@ -92,12 +92,12 @@ def root():
         index_file = static_dir / "index.html"
         if index_file.exists():
             return FileResponse(str(index_file))
-    return {"status": True, "message": "IoT Backend API is running", "data": None}
+    return {"status": True, "message": "API Backend IoT đang chạy", "data": None}
 
 # Kiểm tra trạng thái hệ thống
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    return {"status": "hoạt động bình thường"}
 
 # Sự kiện khởi động - Kết nối MQTT khi server khởi động
 @app.on_event("startup")

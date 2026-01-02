@@ -61,7 +61,7 @@ export function Devices({
   const [loadingSensorData, setLoadingSensorData] = useState(false);
   const [selectedDays, setSelectedDays] = useState<1 | 3 | 7>(1);
   const [selectedSensorName, setSelectedSensorName] = useState<string | null>(null);
-  const isFetchingSensorDataRef = useRef(false); // Flag để tránh gọi trùng lặp
+  const isFetchingSensorDataRef = useRef(false);
   const [editingSensorThreshold, setEditingSensorThreshold] = useState<Sensor | null>(null);
   const [editingSensorName, setEditingSensorName] = useState<Sensor | null>(null);
   const [editingActuatorName, setEditingActuatorName] = useState<Actuator | null>(null);
@@ -69,13 +69,11 @@ export function Devices({
   const [localDeviceActuators, setLocalDeviceActuators] = useState<Actuator[]>([]);
   const isFetchingDeviceDetailsRef = useRef(false);
   
-  // Function để fetch device details (tách ra để dùng lại)
   const fetchDeviceDetails = useCallback(async () => {
     if (!selectedDeviceId) {
       return;
     }
     
-    // Tránh gọi trùng lặp
     if (isFetchingDeviceDetailsRef.current) {
       return;
     }
@@ -83,20 +81,17 @@ export function Devices({
     isFetchingDeviceDetailsRef.current = true;
     
     try {
-      // Gọi API detail để lấy device kèm sensors và actuators
       const deviceDetail = await newDeviceAPI.getDeviceDetail(selectedDeviceId);
       
       const sensors = deviceDetail.sensors || [];
       const actuators = deviceDetail.actuators || [];
       
-      // Lấy giá trị mới nhất cho sensors nếu có sensors
       if (sensors.length > 0) {
         try {
           const latestSensorData = await sensorDataAPI.getLatestSensorData({
             device_id: selectedDeviceId,
           });
           
-          // Tạo map sensor_id -> value và timestamp
           const sensorValueMap = new Map<string, { value: number; timestamp: string }>();
           latestSensorData.forEach((data: any) => {
             if (data.sensor_id && data.value !== undefined) {
@@ -107,7 +102,6 @@ export function Devices({
             }
           });
           
-          // Merge giá trị vào sensors
           const sensorsWithValues = sensors.map(sensor => {
             const latestData = sensorValueMap.get(sensor._id || sensor.id);
             if (latestData) {
@@ -122,8 +116,7 @@ export function Devices({
           
           setLocalDeviceSensors(sensorsWithValues);
         } catch (error) {
-          console.error('Error fetching latest sensor values:', error);
-          // Nếu lỗi khi lấy latest values, vẫn set sensors nhưng không có value
+          console.error('Lỗi khi lấy giá trị sensor mới nhất:', error);
           setLocalDeviceSensors(sensors);
         }
       } else {
@@ -131,11 +124,8 @@ export function Devices({
       }
       
       setLocalDeviceActuators(actuators);
-      
-      // Không clear chart data để giữ lại bảng thống kê
     } catch (error) {
-      console.error('Error fetching device details:', error);
-      // Không hiển thị toast khi refresh định kỳ để tránh spam
+      console.error('Lỗi khi lấy thông tin thiết bị:', error);
       if (!isFetchingDeviceDetailsRef.current) {
         toast.error('Không thể tải thông tin thiết bị', { duration: 1000 });
       }
@@ -146,7 +136,6 @@ export function Devices({
     }
   }, [selectedDeviceId]);
 
-  // Fetch device details khi selectedDeviceId thay đổi
   useEffect(() => {
     if (!selectedDeviceId) {
       setLocalDeviceSensors([]);
@@ -159,54 +148,40 @@ export function Devices({
       return;
     }
     
-    // Fetch ngay lập tức
     setLoadingSensorData(true);
     fetchDeviceDetails().finally(() => {
       setLoadingSensorData(false);
     });
     
-    // Fetch định kỳ mỗi 10 giây
     const interval = setInterval(() => {
       fetchDeviceDetails();
-    }, 10000); // 10 giây
+    }, 10000);
     
     return () => clearInterval(interval);
   }, [selectedDeviceId, fetchDeviceDetails]);
   
-  // Tự động chọn thiết bị khi điều hướng từ trang Rooms
   useEffect(() => {
     const state = location.state as { selectedDeviceId?: string } | null;
     if (state?.selectedDeviceId && onDeviceClick) {
       onDeviceClick(state.selectedDeviceId);
-      // Xóa state sau khi chọn
       window.history.replaceState({}, document.title);
     }
   }, [location.state, onDeviceClick]);
   
-  // Tìm device đang edit từ devices array
   const editingDevice = editingDeviceId 
     ? devices.find(d => d._id === editingDeviceId) || null
     : null;
 
-  // Tìm device được chọn
   const selectedDevice = selectedDeviceId 
     ? devices.find(d => d._id === selectedDeviceId) || null
     : null;
 
-  // Sử dụng local sensors và actuators từ device detail API
-  const deviceSensorsList = useMemo(() => {
-    return localDeviceSensors;
-  }, [localDeviceSensors]);
+  const deviceSensorsList = localDeviceSensors;
+  const deviceActuatorsList = localDeviceActuators;
 
-  const deviceActuatorsList = useMemo(() => {
-    return localDeviceActuators;
-  }, [localDeviceActuators]);
-
-  // Wrapper để cập nhật local state sau khi toggle sensor
-  const handleSensorToggle = useCallback(async (sensorId: string, enabled: boolean) => {
+  const handleSensorToggle = async (sensorId: string, enabled: boolean) => {
     if (!onSensorEnableToggle) return;
     
-    // Optimistic update: cập nhật ngay lập tức
     setLocalDeviceSensors(prevSensors =>
       prevSensors.map(sensor =>
         sensor._id === sensorId
@@ -217,9 +192,7 @@ export function Devices({
     
     try {
       await onSensorEnableToggle(sensorId, enabled);
-      // API đã thành công, state đã được cập nhật ở trên
     } catch (error) {
-      // Rollback nếu API thất bại
       setLocalDeviceSensors(prevSensors =>
         prevSensors.map(sensor =>
           sensor._id === sensorId
@@ -229,13 +202,11 @@ export function Devices({
       );
       throw error;
     }
-  }, [onSensorEnableToggle]);
+  };
 
-  // Wrapper để cập nhật local state sau khi control actuator
-  const handleActuatorToggle = useCallback(async (actuatorId: string, state: boolean) => {
+  const handleActuatorToggle = async (actuatorId: string, state: boolean) => {
     if (!onActuatorControl) return;
     
-    // Optimistic update: cập nhật ngay lập tức
     setLocalDeviceActuators(prevActuators =>
       prevActuators.map(actuator =>
         actuator._id === actuatorId
@@ -246,9 +217,7 @@ export function Devices({
     
     try {
       await onActuatorControl(actuatorId, state);
-      // API đã thành công, state đã được cập nhật ở trên
     } catch (error) {
-      // Rollback nếu API thất bại
       setLocalDeviceActuators(prevActuators =>
         prevActuators.map(actuator =>
           actuator._id === actuatorId
@@ -258,9 +227,8 @@ export function Devices({
       );
       throw error;
     }
-  }, [onActuatorControl]);
+  };
 
-  // Ghi nhớ metadata thiết bị để tránh tính toán lại trong map
   const deviceMetadata = useMemo(() => {
     const metadata = new Map<string, {
       sensorsCount: number;
@@ -273,22 +241,16 @@ export function Devices({
       const deviceSensorsCount = sensors?.filter(s => s.device_id === deviceId).length || 0;
       const deviceActuatorsCount = actuators?.filter(a => a.device_id === deviceId).length || 0;
       
-      // Ưu tiên sử dụng room name từ device object trực tiếp
       let roomName = 'Chưa có phòng';
       
-      // Kiểm tra device.room trước (từ API response)
       if (device.room && typeof device.room === 'string' && device.room.trim()) {
         roomName = device.room;
-      } 
-      // Nếu không có, tìm trong rooms array
-      else if (Array.isArray(rooms)) {
+      } else if (Array.isArray(rooms)) {
         const foundRoom = rooms.find((r: any) => {
           if (typeof r === 'string') return false;
-          // Kiểm tra theo room_id nếu có
           if (device.room_id && r._id === device.room_id) {
             return true;
           }
-          // Kiểm tra nếu room có devices và device này có trong đó
           if (r.devices && Array.isArray(r.devices)) {
             return r.devices.some((d: Device) => d._id === deviceId);
           }
@@ -309,11 +271,9 @@ export function Devices({
     return metadata;
   }, [devices, sensors, actuators, rooms]);
 
-  // Tính toán dữ liệu trung bình bằng cách nhóm thành tối đa 20 điểm - đã ghi nhớ
-  const calculateAveragedData = useCallback((rawData: Array<{ timestamp: string | Date; value: number }>, maxPoints: number = 20): ChartDataPoint[] => {
+  const calculateAveragedData = (rawData: Array<{ timestamp: string | Date; value: number }>, maxPoints: number = 20): ChartDataPoint[] => {
     if (rawData.length === 0) return [];
     
-    // Nếu dữ liệu ít hơn hoặc bằng maxPoints, trả về như cũ
     if (rawData.length <= maxPoints) {
       return rawData.map((item) => {
         const timestamp = new Date(item.timestamp);
@@ -327,17 +287,14 @@ export function Devices({
       });
     }
 
-    // Chia dữ liệu thành maxPoints nhóm
     const groupSize = Math.ceil(rawData.length / maxPoints);
     const averagedData: ChartDataPoint[] = [];
 
     for (let i = 0; i < rawData.length; i += groupSize) {
       const group = rawData.slice(i, i + groupSize);
       
-      // Tính giá trị trung bình cho nhóm này
       const avgValue = group.reduce((sum, item) => sum + item.value, 0) / group.length;
       
-      // Sử dụng timestamp đầu tiên trong nhóm để hiển thị (hoặc timestamp giữa)
       const middleIndex = Math.floor(group.length / 2);
       const timestamp = new Date(group[middleIndex].timestamp);
       
@@ -351,11 +308,9 @@ export function Devices({
     }
 
     return averagedData;
-  }, []);
+  };
 
-  // Lấy dữ liệu sensor khi sensor được click - đã ghi nhớ với useCallback
-  const handleSensorClick = useCallback(async (sensorId: string, skipSetSelectedId: boolean = false) => {
-    // Tránh gọi trùng lặp
+  const handleSensorClick = async (sensorId: string, skipSetSelectedId: boolean = false) => {
     if (isFetchingSensorDataRef.current) {
       return;
     }
@@ -376,42 +331,43 @@ export function Devices({
 
       setSelectedSensorName(sensor.name);
 
-      // Tính khoảng thời gian dựa trên số ngày được chọn
       const endDate = new Date();
       const startDate = new Date();
       startDate.setDate(startDate.getDate() - selectedDays);
 
-      // Lấy dữ liệu sensor theo sensor_id và khoảng thời gian
       const sensorData = await sensorDataAPI.getSensorData({
         sensor_id: sensorId,
-        limit: 1000, // Lấy nhiều hơn để tính trung bình
+        limit: 1000,
         start_time: startDate.toISOString(),
         end_time: endDate.toISOString(),
       });
 
       if (!sensorData || sensorData.length === 0) {
+        setSensorChartData({
+          temperature: [],
+          humidity: [],
+          energy: [],
+        });
+        setSelectedSensorName(null);
         toast.info(`${sensor.name} chưa có dữ liệu trong ${selectedDays} ngày gần đây`, { duration: 1000 });
         setLoadingSensorData(false);
+        isFetchingSensorDataRef.current = false;
         return;
       }
 
-      // Sắp xếp theo timestamp (cũ nhất trước cho biểu đồ)
       const sortedData = [...sensorData].sort((a: any, b: any) => {
         const timeA = new Date(a.timestamp || a.created_at).getTime();
         const timeB = new Date(b.timestamp || b.created_at).getTime();
         return timeA - timeB;
       });
 
-      // Chuẩn bị dữ liệu thô để tính trung bình
       const rawDataForAveraging = sortedData.map((item: any) => ({
         timestamp: item.timestamp || item.created_at,
         value: typeof item.value === 'number' ? item.value : parseFloat(item.value) || 0,
       }));
 
-      // Tính dữ liệu trung bình (tối đa 20 điểm)
       const averagedData = calculateAveragedData(rawDataForAveraging, 20);
 
-      // Cập nhật chart data dựa trên sensor type
       const newChartData = {
         temperature: sensor.type === 'temperature' ? averagedData : [],
         humidity: sensor.type === 'humidity' ? averagedData : [],
@@ -420,7 +376,6 @@ export function Devices({
 
       setSensorChartData(newChartData);
       
-      // Xác định loại biểu đồ dựa trên loại sensor
       let chartType: 'temperature' | 'humidity' | 'energy' = 'temperature';
       if (sensor.type === 'humidity') {
         chartType = 'humidity';
@@ -432,57 +387,51 @@ export function Devices({
       
       toast.success(`Đã tải ${averagedData.length} điểm dữ liệu (trung bình) cho ${sensor.name}`, { duration: 1000 });
     } catch (error: any) {
-      console.error('Error fetching sensor data:', error);
+      console.error('Lỗi khi lấy dữ liệu sensor:', error);
       toast.error(error.message || 'Không thể tải dữ liệu sensor', { duration: 1000 });
     } finally {
       setLoadingSensorData(false);
       isFetchingSensorDataRef.current = false;
     }
-  }, [sensors, selectedDays, calculateAveragedData]);
+  };
 
-  // Lấy lại dữ liệu khi lựa chọn số ngày thay đổi - đã debounce
-  // Chỉ refetch khi selectedDays thay đổi, không refetch khi selectedSensorId thay đổi (đã được xử lý trong handleSensorClick)
   const prevSelectedDaysRef = useRef<1 | 3 | 7>(selectedDays);
   const prevSelectedSensorIdRef = useRef<string | null>(null);
   
   useEffect(() => {
-    // Chỉ refetch khi selectedDays thay đổi và đã có sensor được chọn
-    // Không refetch khi selectedSensorId thay đổi lần đầu (đã được xử lý trong handleSensorClick khi click)
     if (selectedSensorId && prevSelectedDaysRef.current !== selectedDays && prevSelectedSensorIdRef.current === selectedSensorId) {
       prevSelectedDaysRef.current = selectedDays;
       const timeoutId = setTimeout(() => {
-        // Gọi với skipSetSelectedId=true để tránh trigger lại useEffect
         handleSensorClick(selectedSensorId, true);
-      }, 300); // Debounce 300ms
+      }, 300);
 
       return () => clearTimeout(timeoutId);
     }
     
-    // Cập nhật ref khi selectedSensorId thay đổi
     if (prevSelectedSensorIdRef.current !== selectedSensorId) {
       prevSelectedSensorIdRef.current = selectedSensorId;
     }
   }, [selectedDays, selectedSensorId, handleSensorClick]);
 
-  // Đặt lại dữ liệu biểu đồ khi thiết bị thay đổi
-  // Đặt lại sensor được chọn khi thiết bị thay đổi
   useEffect(() => {
     if (selectedDeviceId) {
       setSelectedSensorId(null);
       setSelectedSensorName(null);
       setChartDefaultTab(undefined);
-      // Chart data sẽ được fetch tự động trong useEffect fetchChartData
+      setSensorChartData({
+        temperature: [],
+        humidity: [],
+        energy: [],
+      });
     }
   }, [selectedDeviceId]);
   
-  // Clear editing state nếu device không còn tồn tại
   useEffect(() => {
     if (editingDeviceId && !devices.find(d => d._id === editingDeviceId)) {
       setEditingDeviceId(null);
     }
   }, [devices, editingDeviceId]);
 
-  // Kiểm tra menu và điều chỉnh width cho device-list-scroll-container
   useEffect(() => {
     const checkMenuAndSetWidth = () => {
       const hasMenu = document.querySelector('#menu') !== null || document.querySelector('aside') !== null;
@@ -561,7 +510,6 @@ export function Devices({
     >
 
       <div className="relative z-10 h-full flex flex-col overflow-hidden p-4 md:p-6" style={{ overflowX: 'hidden', maxWidth: '100%', width: '100%', height: '100%' }}>
-        {/* Header - Compact */}
         <div className="flex items-center justify-between flex-shrink-0 mb-4" style={{ maxWidth: '100%', overflowX: 'hidden' }}>
           <div>
             <h2 className="text-white text-xl sm:text-2xl font-bold tracking-tight mb-1" style={{ textShadow: '0 2px 10px rgba(0,0,0,0.3)' }}>
@@ -572,7 +520,6 @@ export function Devices({
           <AddDeviceDialog onAddDevice={onAddDevice || (() => {})} rooms={Array.isArray(rooms) ? rooms.map(r => typeof r === 'string' ? r : r.name) : []} />
         </div>
 
-        {/* Device List Container - Horizontal Scrollable */}
         <div style={{ overflowX: 'hidden', maxWidth: '100%' }}>
           {devices.length === 0 ? (
             <div className="text-center py-8 text-cyan-200/80 bg-slate-800/40 border border-cyan-500/30 rounded-2xl backdrop-blur-xl shadow-xl mx-4 md:mx-6 lg:mx-8">
@@ -645,7 +592,6 @@ export function Devices({
                     const isSelected = selectedDeviceId === deviceId;
                     const deviceEnabled = device.enabled !== undefined ? device.enabled : false;
                     
-                    // Sử dụng metadata đã ghi nhớ
                     const metadata = deviceMetadata.get(deviceId) || {
                       sensorsCount: 0,
                       actuatorsCount: 0,
@@ -675,7 +621,6 @@ export function Devices({
                         }}
                       >
                         <div className="p-4">
-                          {/* Header: Icon, Name, Switch */}
                           <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-3 flex-1 min-w-0">
                               <div 
@@ -735,7 +680,6 @@ export function Devices({
                             </span>
                           </div>
                           
-                          {/* Action Buttons */}
                           <div className="flex items-center gap-2">
                             <Button
                               variant="ghost"
@@ -771,12 +715,9 @@ export function Devices({
           )}
         </div>
 
-        {/* Selected Device Details - Split Layout */}
         {selectedDevice && (
           <div className="flex-1 flex flex-col lg:flex-row gap-3 overflow-hidden min-h-0" style={{ maxWidth: '100%', overflowX: 'hidden', height: '100%' }}>
-            {/* Left Panel: Sensors & Actuators */}
             <div className="flex-shrink-0 lg:w-72 flex flex-col gap-3 overflow-hidden min-h-0">
-              {/* Sensors */}
               {deviceSensorsList.length > 0 && (
                 <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Cảm biến</h4>
@@ -797,7 +738,6 @@ export function Devices({
                               >
                                 <div className="flex items-start justify-between gap-2">
                                   <div className="flex-1 min-w-0">
-                                    {/* Sensor Name and Type */}
                                     <div className="flex items-center gap-1.5 mb-1.5">
                                       <span className="text-white font-semibold text-xs">
                                         {sensor.name}
@@ -810,7 +750,6 @@ export function Devices({
                                       )}
                                     </div>
                                     
-                                    {/* Sensor Value */}
                                     {sensor.value !== undefined ? (
                                       <div className="flex items-baseline gap-1 mb-1">
                                         <span className={`font-bold text-lg ${
@@ -824,7 +763,6 @@ export function Devices({
                                         <span className="text-cyan-200/70 text-xs">
                                           {sensor.unit || ''}
                                         </span>
-                                        {/* Cảnh báo vượt ngưỡng */}
                                         {((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
                                           (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)) && (
                                           <span className="text-red-400 text-sm ml-1" title="Vượt quá ngưỡng nguy hiểm">
@@ -836,7 +774,6 @@ export function Devices({
                                       <div className="text-slate-400 text-xs mb-1">Chưa có dữ liệu</div>
                                     )}
                                     
-                                    {/* Ngưỡng */}
                                     {(sensor.min_threshold !== undefined || sensor.max_threshold !== undefined) && (
                                       <div className="text-xs text-cyan-200/60">
                                         Ngưỡng: {
@@ -850,7 +787,6 @@ export function Devices({
                                     )}
                                   </div>
                                   
-                                  {/* Controls */}
                                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                                     {onSensorEnableToggle && (
                                       <Switch
@@ -900,7 +836,6 @@ export function Devices({
                 </div>
               )}
 
-              {/* Actuators */}
               {deviceActuatorsList.length > 0 && (
                 <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Điều khiển</h4>
@@ -929,7 +864,7 @@ export function Devices({
                                       e.stopPropagation();
                                       setEditingActuatorName(actuator);
                                     }}
-                                    className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20"
+                                    className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
                                     title="Chỉnh sửa tên"
                                   >
                                     <Pencil className="h-3 w-3" />
@@ -955,10 +890,8 @@ export function Devices({
               )}
             </div>
 
-            {/* Right Panel: Charts */}
             <div className="flex-1 flex flex-col overflow-hidden min-h-0">
 
-              {/* Device Charts */}
               <div className="flex-1 flex flex-col overflow-hidden min-h-0" style={{ height: '100%' }}>
                 {loadingSensorData ? (
                   <div className="flex-1 flex items-center justify-center rounded-2xl backdrop-blur-xl bg-white/5 border border-cyan-500/20" style={{ minHeight: 0 }}>
@@ -985,7 +918,6 @@ export function Devices({
           </div>
         )}
 
-        {/* Empty State - Fixed */}
         {!selectedDevice && (
           <div className="flex-1 flex items-center justify-center text-center min-h-0">
             <div className="backdrop-blur-xl bg-slate-800/40 border border-cyan-500/30 rounded-2xl p-8 shadow-2xl">
@@ -996,7 +928,6 @@ export function Devices({
           </div>
         )}
 
-        {/* Edit Device Dialog */}
         {editingDevice && (
           <EditDeviceDialog
             key={editingDevice._id}
@@ -1013,7 +944,6 @@ export function Devices({
           />
         )}
 
-        {/* Edit Sensor Threshold Dialog */}
         {editingSensorThreshold && (
           <EditSensorThresholdDialog
             sensor={editingSensorThreshold}
@@ -1027,7 +957,6 @@ export function Devices({
               if (onUpdateDevice) {
                 await onUpdateDevice();
               }
-              // Refresh device details
               if (selectedDeviceId) {
                 fetchDeviceDetails();
               }
@@ -1035,7 +964,6 @@ export function Devices({
           />
         )}
 
-        {/* Edit Sensor Name Dialog */}
         {editingSensorName && (
           <EditSensorNameDialog
             sensor={editingSensorName}
@@ -1049,7 +977,6 @@ export function Devices({
               if (onUpdateDevice) {
                 await onUpdateDevice();
               }
-              // Refresh device details
               if (selectedDeviceId) {
                 fetchDeviceDetails();
               }
@@ -1057,7 +984,6 @@ export function Devices({
           />
         )}
 
-        {/* Edit Actuator Name Dialog */}
         {editingActuatorName && (
           <EditActuatorNameDialog
             actuator={editingActuatorName}
@@ -1071,7 +997,6 @@ export function Devices({
               if (onUpdateDevice) {
                 await onUpdateDevice();
               }
-              // Refresh device details
               if (selectedDeviceId) {
                 fetchDeviceDetails();
               }
@@ -1079,7 +1004,6 @@ export function Devices({
           />
         )}
 
-        {/* Delete Device Dialog */}
         {deletingDevice && (
           <DeleteDeviceDialog
             deviceId={deletingDevice.id}

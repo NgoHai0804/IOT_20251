@@ -1,5 +1,6 @@
 from datetime import datetime
 import uuid
+from utils.timezone import get_vietnam_now_naive
 
 
 def create_sensor_data_dict(sensor_id: str, value: float, timestamp: datetime = None, device_id: str = None) -> dict:
@@ -17,8 +18,8 @@ def create_sensor_data_dict(sensor_id: str, value: float, timestamp: datetime = 
         "sensor_data_id": str(uuid.uuid4()),
         "sensor_id": sensor_id,
         "value": value,
-        "timestamp": timestamp or datetime.utcnow(),
-        "created_at": datetime.utcnow()
+        "timestamp": timestamp or get_vietnam_now_naive(),
+        "created_at": get_vietnam_now_naive()
     }
     if device_id:
         sensor_data["device_id"] = device_id
