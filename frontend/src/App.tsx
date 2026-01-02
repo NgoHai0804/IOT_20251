@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { Login } from '@/components/Login';
-import { LandingPage, Dashboard, Devices, Rooms, Notifications } from '@/pages';
+import { LandingPage, Dashboard, Devices, Rooms, Notifications, Profile } from '@/pages';
 import { ProtectedRoute, PublicRoute } from '@/components/ProtectedRoute';
 import { SharedLayout } from '@/components/SharedLayout';
 import { useAppData } from '@/hooks/useAppData';
@@ -37,10 +37,17 @@ function App() {
       setUsername('');
     };
 
+    const handleUserInfoUpdated = (event: CustomEvent) => {
+      const { full_name, email } = event.detail;
+      setUsername(full_name || email || 'User');
+    };
+
     window.addEventListener('auth:invalid-token', handleInvalidToken);
+    window.addEventListener('user-info-updated', handleUserInfoUpdated as EventListener);
     
     return () => {
       window.removeEventListener('auth:invalid-token', handleInvalidToken);
+      window.removeEventListener('user-info-updated', handleUserInfoUpdated as EventListener);
     };
   }, []);
 
@@ -203,6 +210,21 @@ function App() {
                   onMarkAsRead={appData.handleMarkAsRead}
                   onClearAll={appData.handleClearAllNotifications}
                 />
+              </SharedLayout>
+            </ProtectedRoute>
+          } 
+        />
+        
+        <Route 
+          path="/profile" 
+          element={
+            <ProtectedRoute isAuthenticated={isAuthenticated}>
+              <SharedLayout 
+                username={username}
+                onLogout={handleLogout}
+                unreadNotifications={appData.unreadCount}
+              >
+                <Profile />
               </SharedLayout>
             </ProtectedRoute>
           } 

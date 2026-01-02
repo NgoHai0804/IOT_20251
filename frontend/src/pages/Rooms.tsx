@@ -700,10 +700,10 @@ export function Rooms({
                           }));
                         }
                         
-                        // Dispatch event để RoomCard cập nhật sensors
-                        if (roomData.sensors) {
-                          window.dispatchEvent(new CustomEvent(`room-sensors-updated-${roomId}`, { 
-                            detail: { sensors: roomData.sensors } 
+                        // Dispatch event để RoomCard cập nhật averaged_sensors
+                        if (roomData.averaged_sensors) {
+                          window.dispatchEvent(new CustomEvent(`room-averaged-sensors-updated-${roomId}`, { 
+                            detail: { averaged_sensors: roomData.averaged_sensors } 
                           }));
                         }
                       } catch (error) {

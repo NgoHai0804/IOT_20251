@@ -5,10 +5,25 @@ Giả lập thiết bị ESP32 để test hệ thống
 
 Cấu trúc:
 - Room → Device → Sensor/Actuator
+- Đăng ký: device/register (chỉ cần gửi type, server tự set unit/name/threshold)
 - Gửi dữ liệu: device/{device_id}/data
 - Nhận lệnh: device/{device_id}/command
 
-Format gửi lên:
+Format đăng ký (device/register):
+{
+  "device_id": "device_01",
+  "name": "ESP32 Simulator",
+  "type": "esp32",
+  "sensors": [
+    { "sensor_id": "sensor_01", "type": "temperature", "pin": 4 },
+    { "sensor_id": "sensor_02", "type": "humidity", "pin": 5 }
+  ],
+  "actuators": [
+    { "actuator_id": "act_01", "type": "relay", "name": "Đèn trần", "pin": 23 }
+  ]
+}
+
+Format gửi dữ liệu (device/{device_id}/data):
 {
   "device_id": "device_01",
   "sensors": [
@@ -20,7 +35,7 @@ Format gửi lên:
   ]
 }
 
-Format nhận xuống:
+Format nhận lệnh (device/{device_id}/command):
 {
   "device_enabled": true,
   "sensors": {
@@ -52,17 +67,21 @@ MQTT_USERNAME = "ngohai"
 MQTT_PASSWORD = "NgoHai0804"
 
 # Device ID (device tự tạo và gửi lên server, dùng làm identifier duy nhất)
-DEVICE_ID = "device_01"
-DEVICE_PASSWORD = "123"
+DEVICE_ID = "123"
+DEVICE_PASSWORD = None
 
 # Sensor IDs
-SENSOR_TEMP_ID = "sensor_01"
-SENSOR_HUMIDITY_ID = "sensor_02"
-SENSOR_GAS_ID = "sensor_03"
+SENSOR_TEMP_ID = "sensor_123_01"
+SENSOR_HUMIDITY_ID = "sensor_123_02"
+SENSOR_GAS_ID = "sensor_123_03"
 
 # Actuator IDs
-ACTUATOR_RELAY1_ID = "act_01"
-ACTUATOR_RELAY2_ID = "act_02"
+ACTUATOR_RELAY1_ID = "act_123_01"
+ACTUATOR_RELAY2_ID = "act_123_02"
+
+# API URL (có thể cấu hình qua env)
+API_BASE_URL = "http://localhost:8000"
+# API_BASE_URL = 'https://iot-20251.onrender.com'
 
 # ========== State Variables ==========
 device_enabled = True
@@ -289,48 +308,54 @@ def print_status():
 
 # ========== Register Device ==========
 def register_device(client=None):
-    """Đăng ký thiết bị với server qua HTTP API - device tự tạo device_id và gửi lên"""
+    """Đăng ký thiết bị với server qua MQTT topic device/register"""
     
-    # API URL (có thể cấu hình qua env)
-    API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:8000")
-    register_url = f"{API_BASE_URL}/iot/device/register"
+    if not client or not client.is_connected():
+        print("❌ MQTT client not connected. Cannot register device.")
+        return False
     
+    # Payload đăng ký - chỉ cần gửi type cho sensors, server sẽ tự động set unit, name và threshold
     register_payload = {
         "device_id": DEVICE_ID,  # Device tự tạo và gửi lên server, dùng làm identifier duy nhất
-        "device_name": f"ESP32 Simulator {DEVICE_ID}",
-        "device_type": "esp32",
-        "device_password": DEVICE_PASSWORD if DEVICE_PASSWORD else None,
-        "note": "ESP32 Simulator Device"
+        "name": f"ESP32 Simulator {DEVICE_ID}",
+        "type": "esp32",
+        "ip": "",  # Có thể để trống
+        "sensors": [
+            # Chỉ cần gửi type và pin, server sẽ tự động set unit, name và threshold
+            {"sensor_id": SENSOR_TEMP_ID, "type": "temperature", "pin": 4},
+            {"sensor_id": SENSOR_HUMIDITY_ID, "type": "humidity", "pin": 5},
+            {"sensor_id": SENSOR_GAS_ID, "type": "gas", "pin": 34}
+        ],
+        "actuators": [
+            {"actuator_id": ACTUATOR_RELAY1_ID, "type": "relay", "name": "Đèn trần", "pin": 23},
+            {"actuator_id": ACTUATOR_RELAY2_ID, "type": "relay", "name": "Quạt", "pin": 22}
+        ]
     }
     
     try:
-        print(f"📝 Registering device via HTTP API...")
-        print(f"   URL: {register_url}")
+        print(f"📝 Registering device via MQTT...")
+        print(f"   Topic: device/register")
         print(f"   Device ID: {DEVICE_ID} (device tự tạo, dùng làm identifier duy nhất)")
-        print(f"   Device Password: {'***' if DEVICE_PASSWORD else '(none)'}")
+        print(f"   Sensors: {len(register_payload['sensors'])} sensors (chỉ gửi type, server tự set unit/name/threshold)")
+        print(f"   Actuators: {len(register_payload['actuators'])} actuators")
         
-        response = requests.post(register_url, json=register_payload, timeout=10)
-        response.raise_for_status()
-        result = response.json()
+        # Publish đăng ký lên topic device/register
+        topic = "device/register"
+        message = json.dumps(register_payload)
         
-        if result.get("status"):
-            data = result.get("data", {})
-            returned_device_id = data.get("device_id")
-            print(f"✅ Device registered successfully!")
-            print(f"   Device ID: {returned_device_id}")
-            print(f"   Device Name: {data.get('device_name')}")
-            print(f"   Status: {data.get('status')}")
+        result = client.publish(topic, message, qos=1)
+        
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"✅ Registration message sent! Waiting for response...")
+            # Đợi một chút để server xử lý
+            time.sleep(2)
             return True
         else:
-            print(f"❌ Registration failed: {result.get('message', 'Unknown error')}")
+            print(f"❌ Failed to publish registration message. Error code: {result.rc}")
             return False
             
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Error registering device: {e}")
-        print(f"   Make sure the API server is running at {API_BASE_URL}")
-        return False
     except Exception as e:
-        print(f"❌ Unexpected error: {e}")
+        print(f"❌ Error registering device: {e}")
         import traceback
         traceback.print_exc()
         return False
@@ -382,21 +407,15 @@ def main():
         # Đợi kết nối
         time.sleep(2)
         
-        # Đăng ký thiết bị (qua HTTP API, device tự tạo device_id và gửi lên)
-        print("\n📝 Registering device...")
+        # Đăng ký thiết bị (qua MQTT topic device/register)
+        print("\n📝 Registering device via MQTT...")
         registration_success = register_device(client)
         
         # Đợi đăng ký hoàn tất
         if registration_success:
-            print(f"\n✅ Device registered! Device ID: {DEVICE_ID}")
-            # Reconnect để subscribe với device_id
-            print("🔄 Reconnecting to MQTT with device ID...")
-            client.loop_stop()
-            client.disconnect()
-            time.sleep(1)
-            client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
-            client.loop_start()
-            time.sleep(2)
+            print(f"\n✅ Device registration sent! Device ID: {DEVICE_ID}")
+            print("   Server will automatically create sensors with unit, name and thresholds based on type")
+            # Không cần reconnect, tiếp tục với kết nối hiện tại
         else:
             print("\n❌ Failed to register device. Exiting...")
             return

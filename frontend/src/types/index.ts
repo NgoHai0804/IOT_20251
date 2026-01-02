@@ -10,6 +10,7 @@ export interface Room {
   devices?: Device[];
   sensors?: Sensor[];
   actuators?: Actuator[];
+  averaged_sensors?: Sensor[]; // Sensors đã được tính trung bình theo type từ backend
   created_at?: string;
   updated_at?: string;
 }

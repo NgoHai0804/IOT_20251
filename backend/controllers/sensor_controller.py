@@ -29,7 +29,7 @@ def control_sensor_enable(sensor_id: str, enabled: bool, user_id: str = None):
                 }
             )
 
-        device_id = sensor["device_id"]
+        device_id = str(sensor["device_id"])
         
         # Kiểm tra device thuộc về user (nếu có user_id) - từ bảng user_room_devices
         if user_id:
@@ -115,6 +115,116 @@ def get_sensors_by_device(device_id: str, user_id: str = None):
         )
 
 
+def get_unit_from_type(sensor_type: str) -> str:
+    """Lấy đơn vị tự động dựa trên loại sensor"""
+    type_unit_map = {
+        "temperature": "°C",
+        "humidity": "%",
+        "gas": "ppm",
+    }
+    return type_unit_map.get(sensor_type.lower(), "")
+
+
+def update_sensor(sensor_id: str, name: str = None, sensor_type: str = None, pin: int = None, user_id: str = None):
+    """
+    Cập nhật thông tin cảm biến (name, type, pin)
+    Unit sẽ tự động được set dựa trên type
+    POST /sensors/{sensor_id}/update
+    {
+      "name": "Nhiệt độ phòng khách",
+      "type": "temperature",
+      "pin": 4
+    }
+    """
+    try:
+        # Kiểm tra sensor tồn tại
+        sensor = sensors_collection.find_one({"_id": sensor_id})
+        if not sensor:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "Sensor not found",
+                    "data": None
+                }
+            )
+
+        device_id = str(sensor["device_id"])
+        
+        # Kiểm tra device thuộc về user (nếu có user_id) - từ bảng user_room_devices
+        if user_id:
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={
+                        "status": False,
+                        "message": "Access denied: Device does not belong to user",
+                        "data": None
+                    }
+                )
+
+        # Validate sensor type nếu có
+        valid_types = ["temperature", "humidity", "gas"]
+        if sensor_type is not None and sensor_type.lower() not in valid_types:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": False,
+                    "message": f"Invalid sensor type. Must be one of: {', '.join(valid_types)}",
+                    "data": None
+                }
+            )
+
+        # Cập nhật thông tin
+        update_data = {"updated_at": datetime.utcnow()}
+        
+        if name is not None:
+            update_data["name"] = name
+        if sensor_type is not None:
+            update_data["type"] = sensor_type.lower()
+            # Tự động set unit dựa trên type
+            unit = get_unit_from_type(sensor_type)
+            if unit:
+                update_data["unit"] = unit
+        if pin is not None:
+            update_data["pin"] = pin
+
+        sensors_collection.update_one(
+            {"_id": sensor_id},
+            {"$set": update_data}
+        )
+
+        # Lấy sensor đã cập nhật để trả về
+        updated_sensor = sensors_collection.find_one({"_id": sensor_id})
+        if updated_sensor:
+            updated_sensor["_id"] = str(updated_sensor["_id"])
+            # Sanitize để convert datetime objects thành string
+            updated_sensor = sanitize_for_json(updated_sensor)
+
+        logger.info(f"Đã cập nhật sensor {sensor_id}: name={name}, type={sensor_type}, pin={pin}")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Sensor updated successfully",
+                "data": updated_sensor
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Lỗi cập nhật sensor: {str(e)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+
+
 def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_threshold: float = None, user_id: str = None):
     """
     Cập nhật ngưỡng nguy hiểm của cảm biến (ngưỡng trên và dưới)
@@ -137,7 +247,7 @@ def update_sensor_threshold(sensor_id: str, min_threshold: float = None, max_thr
                 }
             )
 
-        device_id = sensor["device_id"]
+        device_id = str(sensor["device_id"])
         
         # Kiểm tra device thuộc về user (nếu có user_id) - từ bảng user_room_devices
         if user_id:

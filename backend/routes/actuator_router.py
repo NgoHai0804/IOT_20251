@@ -19,6 +19,27 @@ async def control_actuator_route(actuator_id: str, payload: ActuatorControl, cur
     return actuator_controller.control_actuator(actuator_id, payload.state, user_id)
 
 
+@router.post("/{actuator_id}/update", response_model=ResponseSchema)
+async def update_actuator_route(actuator_id: str, payload: ActuatorUpdate, current_user: dict = Depends(get_current_user)):
+    """
+    Cập nhật thông tin actuator (name, pin, enabled)
+    POST /actuators/{actuator_id}/update
+    {
+      "name": "Đèn phòng khách",
+      "pin": 23,
+      "enabled": true
+    }
+    """
+    user_id = str(current_user["_id"])
+    return actuator_controller.update_actuator(
+        actuator_id, 
+        payload.name, 
+        payload.pin, 
+        payload.enabled, 
+        user_id
+    )
+
+
 @router.get("/device/{device_id}", response_model=ResponseSchema)
 async def get_actuators_by_device_route(device_id: str, current_user: dict = Depends(get_current_user)):
     """Lấy danh sách actuator theo thiết bị của user"""

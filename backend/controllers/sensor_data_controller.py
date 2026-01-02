@@ -33,6 +33,8 @@ def get_sensor_data(
         
         # Kiểm tra quyền truy cập device từ bảng user_room_devices
         if device_id:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             # Kiểm tra device có thuộc về user không
             link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
@@ -164,6 +166,8 @@ def get_latest_sensor_data(
         
         # Kiểm tra quyền truy cập device từ bảng user_room_devices
         if device_id:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             # Kiểm tra device thuộc về user
             link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
@@ -332,6 +336,8 @@ def get_sensor_statistics(
         
         # Kiểm tra quyền truy cập device
         if device_id:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
                 return JSONResponse(

@@ -218,6 +218,9 @@ class MQTTClient:
     def handle_sensor_data_new_format(self, device_id: str, sensor_id: str, payload: str):
         """Xử lý dữ liệu sensor từ thiết bị IoT (format mới: device/{device_id}/sensor/{sensor_id}/data)"""
         try:
+            # Đảm bảo device_id và sensor_id là string
+            device_id = str(device_id)
+            sensor_id = str(sensor_id)
             # Phân tích JSON payload
             data = json.loads(payload)
             
@@ -254,6 +257,8 @@ class MQTTClient:
     def handle_sensor_data(self, device_id: str, payload: str):
         """Xử lý dữ liệu sensor từ thiết bị IoT (format cũ: iot/device/{device_id}/data)"""
         try:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             # Phân tích JSON payload
             data = json.loads(payload)
             
@@ -309,6 +314,8 @@ class MQTTClient:
     def save_sensor_data(self, device_id: str, sensor_data: dict):
         """Lưu dữ liệu sensor vào database"""
         try:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             sensor_id = sensor_data.get("sensor_id")
             value = sensor_data.get("value")
             sensor_type = sensor_data.get("type", sensor_data.get("sensor_type", ""))
@@ -317,22 +324,31 @@ class MQTTClient:
                 logger.warning(f"Thiếu sensor_id hoặc value trong dữ liệu: {sensor_data}")
                 return
             
+            # Đảm bảo sensor_id là string
+            sensor_id = str(sensor_id)
             # Kiểm tra sensor có tồn tại không (tùy chọn) - dùng _id thay vì sensor_id
             sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
             if not sensor:
                 logger.warning(f"Sensor {sensor_id} không tìm thấy, đang tạo sensor mới")
-                # Có thể tự động tạo sensor nếu chưa có
-                from models.sensor_models import create_sensor_dict
-                new_sensor = create_sensor_dict(
-                    device_id=device_id,
-                    sensor_type=sensor_type,
-                    name=sensor_data.get("name", f"Sensor {sensor_id}"),
-                    unit=sensor_data.get("unit", ""),
-                    pin=sensor_data.get("pin", 0),
-                    enabled=True,
-                    auto_set_threshold=True  # Tự động set ngưỡng mặc định
-                )
-                new_sensor["_id"] = sensor_id  # Sử dụng sensor_id từ device
+                # Tạo sensor mới trực tiếp với sensor_id từ device làm _id
+                from models.sensor_models import get_default_thresholds
+                new_sensor = {
+                    "_id": str(sensor_id),  # Sử dụng sensor_id từ device làm _id
+                    "device_id": str(device_id),
+                    "type": sensor_type,
+                    "name": sensor_data.get("name", f"Sensor {sensor_id}"),
+                    "unit": sensor_data.get("unit", ""),
+                    "pin": sensor_data.get("pin", 0),
+                    "enabled": True,
+                    "created_at": datetime.utcnow(),
+                    "updated_at": datetime.utcnow()
+                }
+                # Tự động set ngưỡng mặc định
+                default_min, default_max = get_default_thresholds(sensor_type)
+                if default_min is not None:
+                    new_sensor["min_threshold"] = default_min
+                if default_max is not None:
+                    new_sensor["max_threshold"] = default_max
                 sensors_collection.insert_one(new_sensor)
                 logger.info(f"Đã tạo sensor: {sensor_id} với ngưỡng mặc định")
             else:
@@ -445,6 +461,8 @@ class MQTTClient:
         }
         """
         try:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             data = json.loads(payload)
             
             # Kiểm tra device có tồn tại không (dùng _id thay vì device_id)
@@ -466,12 +484,56 @@ class MQTTClient:
                     value = sensor_data_item.get("value")
                     
                     if sensor_id and value is not None:
+                        # Đảm bảo sensor_id là string
+                        sensor_id = str(sensor_id)
                         sensor_value = float(value)
                         
                         # Lấy thông tin sensor để kiểm tra ngưỡng
                         sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
                         
-                        # Kiểm tra ngưỡng và tạo notification nếu vượt quá
+                        # Nếu sensor chưa tồn tại, tự động tạo sensor mới
+                        if not sensor:
+                            logger.info(f"⚠️ Sensor {sensor_id} chưa tồn tại, đang tự động tạo sensor mới cho device {device_id}")
+                            from models.sensor_models import get_default_thresholds
+                            # Tự động xác định loại sensor từ tên hoặc giá trị
+                            sensor_type = sensor_data_item.get("type", "temperature")  # Mặc định là temperature
+                            if "humidity" in sensor_id.lower() or "do_am" in sensor_id.lower() or "_02" in sensor_id:
+                                sensor_type = "humidity"
+                            elif "gas" in sensor_id.lower() or "khi" in sensor_id.lower() or "_03" in sensor_id:
+                                sensor_type = "gas"
+                            elif "light" in sensor_id.lower() or "anh_sang" in sensor_id.lower():
+                                sensor_type = "light"
+                            elif "motion" in sensor_id.lower() or "chuyen_dong" in sensor_id.lower():
+                                sensor_type = "motion"
+                            
+                            # Tạo sensor mới
+                            new_sensor = {
+                                "_id": str(sensor_id),
+                                "device_id": str(device_id),
+                                "type": sensor_type,
+                                "name": sensor_data_item.get("name", f"Sensor {sensor_id}"),
+                                "unit": sensor_data_item.get("unit", ""),
+                                "pin": sensor_data_item.get("pin", 0),
+                                "enabled": True,
+                                "created_at": datetime.utcnow(),
+                                "updated_at": datetime.utcnow()
+                            }
+                            # Tự động set ngưỡng mặc định
+                            default_min, default_max = get_default_thresholds(sensor_type)
+                            if default_min is not None:
+                                new_sensor["min_threshold"] = default_min
+                            if default_max is not None:
+                                new_sensor["max_threshold"] = default_max
+                            try:
+                                sensors_collection.insert_one(new_sensor)
+                                sensor = new_sensor
+                                logger.info(f"✅ Đã tự động tạo sensor: {sensor_id} (type: {sensor_type}) với ngưỡng mặc định")
+                            except Exception as e:
+                                logger.error(f"❌ Lỗi tạo sensor {sensor_id}: {str(e)}")
+                                # Vẫn tiếp tục lưu dữ liệu dù không tạo được sensor
+                                sensor = None
+                        
+                        # Kiểm tra ngưỡng và tạo notification nếu vượt quá (chỉ khi sensor tồn tại)
                         if sensor:
                             min_threshold = sensor.get("min_threshold")
                             max_threshold = sensor.get("max_threshold")
@@ -529,11 +591,15 @@ class MQTTClient:
                                         # Đã có notification gần đây, bỏ qua để tránh spam
                                         logger.debug(f"Bỏ qua notification cho user {user_id}, sensor {sensor_id} - đã có notification trong khoảng thời gian cooldown")
                         
-                        # Lưu sensor data
-                        from models.data_models import create_sensor_data_dict
-                        sensor_data_dict = create_sensor_data_dict(sensor_id, sensor_value, device_id=device_id)
-                        sensor_data_collection.insert_one(sensor_data_dict)
-                        logger.debug(f"Đã lưu dữ liệu sensor: {sensor_id} = {value}")
+                        # Lưu sensor data (luôn lưu, không phụ thuộc vào việc sensor có tồn tại hay không)
+                        try:
+                            from models.data_models import create_sensor_data_dict
+                            sensor_data_dict = create_sensor_data_dict(sensor_id, sensor_value, device_id=device_id)
+                            sensor_data_collection.insert_one(sensor_data_dict)
+                            logger.info(f"✅ Đã lưu dữ liệu sensor: {sensor_id} = {sensor_value} vào database")
+                        except Exception as e:
+                            logger.error(f"❌ Lỗi lưu dữ liệu sensor {sensor_id}: {str(e)}")
+                            logger.error(traceback.format_exc())
             
             # Xử lý actuators (cập nhật state)
             if "actuators" in data and isinstance(data["actuators"], list):
@@ -542,12 +608,59 @@ class MQTTClient:
                     state = actuator_data.get("state")
                     
                     if actuator_id is not None and state is not None:
+                        # Đảm bảo actuator_id là string
+                        actuator_id = str(actuator_id)
+                        
+                        # Kiểm tra actuator có tồn tại không
+                        actuator = actuators_collection.find_one({"_id": actuator_id, "device_id": device_id})
+                        
+                        # Nếu actuator chưa tồn tại, tự động tạo actuator mới
+                        if not actuator:
+                            logger.info(f"⚠️ Actuator {actuator_id} chưa tồn tại, đang tự động tạo actuator mới cho device {device_id}")
+                            # Tự động xác định loại actuator từ tên hoặc mặc định là relay
+                            actuator_type = actuator_data.get("type", "relay")  # Mặc định là relay
+                            if "motor" in actuator_id.lower() or "dong_co" in actuator_id.lower():
+                                actuator_type = "motor"
+                            elif "led" in actuator_id.lower():
+                                actuator_type = "led"
+                            elif "fan" in actuator_id.lower() or "quat" in actuator_id.lower():
+                                actuator_type = "fan"
+                            
+                            # Tạo actuator mới
+                            new_actuator = {
+                                "_id": str(actuator_id),
+                                "device_id": str(device_id),
+                                "type": actuator_type,
+                                "name": actuator_data.get("name", f"Actuator {actuator_id}"),
+                                "pin": actuator_data.get("pin", 0),
+                                "state": bool(state),
+                                "enabled": True,
+                                "created_at": datetime.utcnow(),
+                                "updated_at": datetime.utcnow()
+                            }
+                            try:
+                                actuators_collection.insert_one(new_actuator)
+                                actuator = new_actuator
+                                logger.info(f"✅ Đã tự động tạo actuator: {actuator_id} (type: {actuator_type}) với state: {state}")
+                            except Exception as e:
+                                logger.error(f"❌ Lỗi tạo actuator {actuator_id}: {str(e)}")
+                                logger.error(traceback.format_exc())
+                                # Vẫn tiếp tục cập nhật state dù không tạo được actuator
+                                actuator = None
+                        
                         # Cập nhật state của actuator
-                        actuators_collection.update_one(
-                            {"_id": actuator_id, "device_id": device_id},
-                            {"$set": {"state": bool(state), "updated_at": datetime.utcnow()}}
-                        )
-                        logger.debug(f"Đã cập nhật trạng thái actuator: {actuator_id} = {state}")
+                        try:
+                            result = actuators_collection.update_one(
+                                {"_id": actuator_id, "device_id": device_id},
+                                {"$set": {"state": bool(state), "updated_at": datetime.utcnow()}}
+                            )
+                            if result.modified_count > 0:
+                                logger.info(f"✅ Đã cập nhật trạng thái actuator: {actuator_id} = {state}")
+                            else:
+                                logger.debug(f"Actuator {actuator_id} state không thay đổi hoặc không tìm thấy")
+                        except Exception as e:
+                            logger.error(f"❌ Lỗi cập nhật actuator {actuator_id}: {str(e)}")
+                            logger.error(traceback.format_exc())
             
             logger.info(f"Đã xử lý dữ liệu thiết bị cho device: {device_id}")
             
@@ -559,6 +672,8 @@ class MQTTClient:
     def handle_device_status(self, device_id: str, payload: str):
         """Xử lý trạng thái thiết bị"""
         try:
+            # Đảm bảo device_id là string
+            device_id = str(device_id)
             data = json.loads(payload)
             status = data.get("status", "offline")
             
@@ -718,6 +833,8 @@ class MQTTClient:
             # Kiểm tra device đã tồn tại chưa
             device_id = data.get("device_id")
             if device_id:
+                # Đảm bảo device_id là string khi tìm kiếm
+                device_id = str(device_id)
                 existing_device = devices_collection.find_one({"_id": device_id})
                 if existing_device:
                     logger.info(f"Thiết bị {device_id} đã tồn tại, đang cập nhật...")
@@ -740,7 +857,8 @@ class MQTTClient:
                         status="online",
                         enabled=True
                     )
-                    device["_id"] = device_id  # Sử dụng device_id được chỉ định
+                    # Đảm bảo _id là string
+                    device["_id"] = str(device_id)
                     devices_collection.insert_one(device)
                     logger.info(f"Đã tạo thiết bị mới: {device_id} (không gán phòng, không có user_id)")
             else:
@@ -754,7 +872,8 @@ class MQTTClient:
                     enabled=True
                 )
                 devices_collection.insert_one(device)
-                device_id = device["_id"]
+                # Đảm bảo device_id là string
+                device_id = str(device["_id"])
                 logger.info(f"Đã tạo thiết bị mới: {device_id} (không gán phòng, không có user_id)")
             
             # Xử lý sensors
@@ -766,25 +885,57 @@ class MQTTClient:
                 
                 existing_sensor = sensors_collection.find_one({"_id": sensor_id, "device_id": device_id})
                 if not existing_sensor:
-                    sensor = create_sensor_dict(
-                        device_id=device_id,
-                        sensor_type=sensor_info.get("type", "temperature"),
-                        name=sensor_info.get("name", f"Sensor {sensor_id}"),
-                        unit=sensor_info.get("unit", ""),
-                        pin=sensor_info.get("pin", 0),
-                        enabled=True,
-                        auto_set_threshold=True  # Tự động set ngưỡng mặc định
-                    )
-                    sensor["_id"] = sensor_id
+                    # Tạo sensor mới trực tiếp với sensor_id từ device làm _id
+                    from models.sensor_models import get_default_thresholds, get_default_unit, get_default_name
+                    
+                    # Lấy type từ device (bắt buộc)
+                    sensor_type = sensor_info.get("type", "temperature")
+                    
+                    # Tự động set unit và name dựa trên type nếu device không gửi
+                    sensor_unit = sensor_info.get("unit") or get_default_unit(sensor_type)
+                    sensor_name = sensor_info.get("name") or get_default_name(sensor_type)
+                    
+                    sensor = {
+                        "_id": str(sensor_id),  # Sử dụng sensor_id từ device làm _id
+                        "device_id": str(device_id),
+                        "type": sensor_type,
+                        "name": sensor_name,
+                        "unit": sensor_unit,
+                        "pin": sensor_info.get("pin", 0),
+                        "enabled": True,
+                        "created_at": datetime.utcnow(),
+                        "updated_at": datetime.utcnow()
+                    }
+                    # Tự động set ngưỡng mặc định dựa trên type
+                    default_min, default_max = get_default_thresholds(sensor_type)
+                    if default_min is not None:
+                        sensor["min_threshold"] = default_min
+                    if default_max is not None:
+                        sensor["max_threshold"] = default_max
                     sensors_collection.insert_one(sensor)
-                    logger.info(f"Đã tạo sensor: {sensor_id} với ngưỡng mặc định")
+                    logger.info(f"Đã tạo sensor: {sensor_id} (type: {sensor_type}, unit: {sensor_unit}) với ngưỡng mặc định")
                 else:
-                    # Cập nhật ngưỡng mặc định nếu sensor đã tồn tại nhưng chưa có ngưỡng
-                    from models.sensor_models import get_default_thresholds
+                    # Cập nhật ngưỡng mặc định và unit nếu sensor đã tồn tại nhưng chưa có
+                    from models.sensor_models import get_default_thresholds, get_default_unit, get_default_name
                     sensor_type = existing_sensor.get("type", sensor_info.get("type", "temperature"))
                     needs_update = False
                     update_data = {}
                     
+                    # Cập nhật unit nếu chưa có hoặc rỗng
+                    if not existing_sensor.get("unit") or existing_sensor.get("unit") == "":
+                        default_unit = get_default_unit(sensor_type)
+                        if default_unit:
+                            update_data["unit"] = default_unit
+                            needs_update = True
+                    
+                    # Cập nhật name nếu chưa có hoặc rỗng
+                    if not existing_sensor.get("name") or existing_sensor.get("name") == "":
+                        default_name = get_default_name(sensor_type)
+                        if default_name:
+                            update_data["name"] = default_name
+                            needs_update = True
+                    
+                    # Cập nhật ngưỡng mặc định nếu chưa có
                     if "min_threshold" not in existing_sensor and "max_threshold" not in existing_sensor:
                         default_min, default_max = get_default_thresholds(sensor_type)
                         if default_min is not None:
@@ -800,7 +951,7 @@ class MQTTClient:
                                 {"_id": sensor_id, "device_id": device_id},
                                 {"$set": update_data}
                             )
-                            logger.info(f"Đã cập nhật sensor {sensor_id} với ngưỡng mặc định: min={update_data.get('min_threshold')}, max={update_data.get('max_threshold')}")
+                            logger.info(f"Đã cập nhật sensor {sensor_id} với unit={update_data.get('unit')}, name={update_data.get('name')}, ngưỡng: min={update_data.get('min_threshold')}, max={update_data.get('max_threshold')}")
             
             # Xử lý actuators
             actuators_data = data.get("actuators", [])
@@ -809,6 +960,8 @@ class MQTTClient:
                 if not actuator_id:
                     continue
                 
+                # Đảm bảo actuator_id là string
+                actuator_id = str(actuator_id)
                 existing_actuator = actuators_collection.find_one({"_id": actuator_id, "device_id": device_id})
                 if not existing_actuator:
                     actuator = create_actuator_dict(
@@ -819,15 +972,17 @@ class MQTTClient:
                         state=False,
                         enabled=True
                     )
-                    actuator["_id"] = actuator_id
+                    # Đảm bảo _id là string
+                    actuator["_id"] = str(actuator_id)
                     actuators_collection.insert_one(actuator)
                     logger.info(f"Đã tạo actuator: {actuator_id}")
             
             # Gửi response về device
+            # Đảm bảo device_id là string trong response
             response_topic = f"device/{device_id}/register/response"
             response = {
                 "status": "success",
-                "device_id": device_id,
+                "device_id": str(device_id),
                 "message": "Device registered successfully"
             }
             self.publish(response_topic, response, qos=1)

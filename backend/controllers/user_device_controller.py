@@ -34,6 +34,8 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
     """
     try:
         user_id = str(user_data["_id"])
+        # Đảm bảo device_id là string
+        device_id = str(device_id)
 
         # Tìm device bằng device_id trong hệ thống
         device = devices_collection.find_one({"_id": device_id})
@@ -167,6 +169,8 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
 def get_info_device(user_data: dict, id_device: str):
     try:
         user_id = str(user_data["_id"])
+        # Đảm bảo id_device là string
+        id_device = str(id_device)
 
         # Tìm liên kết
         link = user_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
@@ -177,8 +181,8 @@ def get_info_device(user_data: dict, id_device: str):
                 "data": None
             }
 
-        # Lấy thông tin device
-        device = devices_collection.find_one({"device_id": id_device})
+        # Lấy thông tin device (tìm bằng _id)
+        device = devices_collection.find_one({"_id": id_device})
         if not device:
             return {
                 "status": False,
@@ -218,7 +222,7 @@ def get_all_device(user_data: dict):
 
         # Lấy danh sách device_ids từ bảng user_room_devices (cấu trúc mới)
         linked_devices = list(user_room_devices_collection.find({"user_id": user_id}))
-        device_ids = list(set([link["device_id"] for link in linked_devices if "device_id" in link and link["device_id"]]))  # Loại bỏ duplicate
+        device_ids = list(set([str(link["device_id"]) for link in linked_devices if "device_id" in link and link["device_id"]]))  # Loại bỏ duplicate và đảm bảo là string
 
         if not device_ids:
             return JSONResponse(
@@ -316,6 +320,9 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
     try:
         user_id = str(user_data["_id"])
 
+        # Đảm bảo id_device là string
+        id_device = str(id_device)
+        
         # Kiểm tra quyền sở hữu - chỉ người đã liên kết với thiết bị mới có thể cập nhật
         link = user_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
         if not link:
@@ -328,9 +335,8 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
                 }
             )
 
-        # Kiểm tra thiết bị tồn tại (tìm bằng _id hoặc device_id để backward compatible)
-        device = devices_collection.find_one({"_id": id_device}) or \
-                 devices_collection.find_one({"device_id": id_device})
+        # Kiểm tra thiết bị tồn tại (tìm bằng _id)
+        device = devices_collection.find_one({"_id": id_device})
         if not device:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
@@ -434,11 +440,9 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
         # Thêm thời gian cập nhật
         update_fields["updated_at"] = datetime.utcnow()
 
-        # Cập nhật thiết bị (tìm bằng _id hoặc device_id)
-        # Sử dụng _id nếu device được tìm thấy bằng _id, ngược lại dùng device_id
-        device_query = {"_id": id_device} if device.get("_id") == id_device else {"device_id": id_device}
+        # Cập nhật thiết bị (tìm bằng _id)
         result = devices_collection.update_one(
-            device_query,
+            {"_id": id_device},
             {"$set": update_fields}
         )
 
@@ -470,7 +474,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
 
         # Lấy thông tin thiết bị đã cập nhật (không bao gồm mật khẩu)
         # Sử dụng cùng query như khi update để đảm bảo tìm đúng device
-        updated_device = devices_collection.find_one(device_query)
+        updated_device = devices_collection.find_one({"_id": id_device})
         if updated_device:
             updated_device["_id"] = str(updated_device["_id"])
             updated_device.pop("device_password", None)

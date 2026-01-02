@@ -17,6 +17,8 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
     }
     """
     try:
+        # Đảm bảo device_id là string
+        device_id = str(device_id)
         # Kiểm tra device tồn tại
         device = devices_collection.find_one({"_id": device_id})
         if not device:
@@ -95,6 +97,8 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
 def get_device(device_id: str, user_id: str = None):
     """Lấy thông tin thiết bị (theo user nếu có)"""
     try:
+        # Đảm bảo device_id là string
+        device_id = str(device_id)
         device = devices_collection.find_one({"_id": device_id})
         if not device:
             return JSONResponse(
@@ -142,6 +146,8 @@ def get_device(device_id: str, user_id: str = None):
 def get_device_detail(device_id: str, user_id: str = None):
     """Lấy thông tin chi tiết thiết bị kèm sensors và actuators"""
     try:
+        # Đảm bảo device_id là string
+        device_id = str(device_id)
         device = devices_collection.find_one({"_id": device_id})
         if not device:
             return JSONResponse(
@@ -217,7 +223,7 @@ def get_all_devices(user_id: str = None):
 
         # Lấy danh sách device_ids từ bảng user_room_devices (cấu trúc mới)
         linked_devices = list(user_room_devices_collection.find({"user_id": user_id}))
-        device_ids = list(set([link["device_id"] for link in linked_devices if "device_id" in link and link["device_id"]]))  # Loại bỏ duplicate
+        device_ids = list(set([str(link["device_id"]) for link in linked_devices if "device_id" in link and link["device_id"]]))  # Loại bỏ duplicate và đảm bảo là string
 
         if not device_ids:
             return JSONResponse(
@@ -372,10 +378,14 @@ def get_devices_by_room(room_id: str, user_id: str = None):
 
 def delete_device(device_id: str, user_id: str = None):
     """
-    Xóa thiết bị và tất cả dữ liệu liên quan
+    Xóa liên kết thiết bị khỏi user (chỉ xóa trong bảng user_room_devices)
+    Không xóa thiết bị, sensors, actuators, sensor_data
     DELETE /devices/{device_id}
     """
     try:
+        # Đảm bảo device_id là string
+        device_id = str(device_id)
+        
         # Kiểm tra device tồn tại
         device = devices_collection.find_one({"_id": device_id})
         if not device:
@@ -388,65 +398,64 @@ def delete_device(device_id: str, user_id: str = None):
                 }
             )
         
-        # Kiểm tra quyền truy cập từ bảng user_room_devices (nếu có user_id)
-        if user_id:
-            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
-            if not link:
-                return JSONResponse(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    content={
-                        "status": False,
-                        "message": "Access denied: Device does not belong to user",
-                        "data": None
-                    }
-                )
-
-        # Xóa tất cả sensors của device
-        sensors_result = sensors_collection.delete_many({"device_id": device_id})
-        logger.info(f"Đã xóa {sensors_result.deleted_count} sensors của device {device_id}")
-        
-        # Xóa tất cả actuators của device
-        actuators_result = actuators_collection.delete_many({"device_id": device_id})
-        logger.info(f"Đã xóa {actuators_result.deleted_count} actuators của device {device_id}")
-        
-        # Xóa tất cả sensor data của device (nếu có collection sensor_data)
-        try:
-            from utils.database import sensor_data_collection
-            sensor_data_result = sensor_data_collection.delete_many({"device_id": device_id})
-            logger.info(f"Đã xóa {sensor_data_result.deleted_count} sensor data của device {device_id}")
-        except Exception as e:
-            logger.warning(f"Không thể xóa sensor data: {str(e)}")
-        
-        # Xóa tất cả user_room_devices links của device
-        user_room_devices_result = user_room_devices_collection.delete_many({"device_id": device_id})
-        logger.info(f"Đã xóa {user_room_devices_result.deleted_count} user_room_devices links của device {device_id}")
-        
-        # Xóa device khỏi devices collection
-        devices_result = devices_collection.delete_one({"_id": device_id})
-        
-        if devices_result.deleted_count == 0:
+        # Kiểm tra quyền truy cập từ bảng user_room_devices (phải có user_id)
+        if not user_id:
             return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                status_code=status.HTTP_400_BAD_REQUEST,
                 content={
                     "status": False,
-                    "message": "Failed to delete device",
+                    "message": "User ID is required",
+                    "data": None
+                }
+            )
+        
+        # Kiểm tra user có liên kết với device này không
+        link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+        if not link:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "Device not found in user's rooms",
                     "data": None
                 }
             )
 
-        logger.info(f"Đã xóa thiết bị {device_id} và tất cả dữ liệu liên quan")
+        # Chỉ xóa liên kết trong user_room_devices (xóa tất cả links của user với device này)
+        # KHÔNG xóa device, sensors, actuators, sensor_data
+        user_room_devices_result = user_room_devices_collection.delete_many({
+            "user_id": user_id,
+            "device_id": device_id
+        })
+        
+        deleted_count = user_room_devices_result.deleted_count
+        
+        if deleted_count == 0:
+            return JSONResponse(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                content={
+                    "status": False,
+                    "message": "Failed to remove device link",
+                    "data": None
+                }
+            )
+
+        logger.info(f"Đã xóa {deleted_count} liên kết của user {user_id} với device {device_id} (device vẫn tồn tại)")
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
             content={
                 "status": True,
-                "message": "Device deleted successfully",
-                "data": {"device_id": device_id}
+                "message": "Device link removed successfully (device still exists)",
+                "data": {
+                    "device_id": device_id,
+                    "links_removed": deleted_count
+                }
             }
         )
 
     except Exception as e:
-        logger.error(f"Lỗi xóa thiết bị: {str(e)}")
+        logger.error(f"Lỗi xóa liên kết thiết bị: {str(e)}")
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={

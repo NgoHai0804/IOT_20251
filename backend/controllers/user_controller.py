@@ -348,3 +348,92 @@ def change_user_info(payload, current_user):
                 "data": None
             }
         )
+
+
+# ==========================
+# Đổi mật khẩu
+# ==========================
+def change_password(payload, current_user):
+    try:
+        email = current_user["email"]
+
+        # Kiểm tra độ dài mật khẩu mới
+        if not (8 <= len(payload.new_password) <= 30):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": False,
+                    "message": "Mật khẩu mới phải có độ dài từ 8 đến 30 ký tự",
+                    "data": None
+                }
+            )
+
+        # Tìm user
+        user = users_collection.find_one({"email": email})
+        if not user:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "User not found",
+                    "data": None
+                }
+            )
+
+        # Kiểm tra mật khẩu cũ
+        if not bcrypt.checkpw(
+            payload.old_password.encode("utf-8"),
+            user["password_hash"].encode("utf-8")
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                content={
+                    "status": False,
+                    "message": "Mật khẩu cũ không đúng",
+                    "data": None
+                }
+            )
+
+        # Kiểm tra mật khẩu mới không được trùng với mật khẩu cũ
+        if bcrypt.checkpw(
+            payload.new_password.encode("utf-8"),
+            user["password_hash"].encode("utf-8")
+        ):
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content={
+                    "status": False,
+                    "message": "Mật khẩu mới không được trùng với mật khẩu cũ",
+                    "data": None
+                }
+            )
+
+        # Hash mật khẩu mới
+        new_password_hash = bcrypt.hashpw(
+            payload.new_password.encode(), bcrypt.gensalt()
+        ).decode()
+
+        # Cập nhật mật khẩu
+        users_collection.update_one(
+            {"email": email},
+            {"$set": {"password_hash": new_password_hash}}
+        )
+
+        return JSONResponse(
+            status_code=200,
+            content={
+                "status": True,
+                "message": "Đổi mật khẩu thành công",
+                "data": None
+            }
+        )
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=500,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )

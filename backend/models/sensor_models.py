@@ -18,6 +18,36 @@ def get_default_thresholds(sensor_type: str) -> tuple[float | None, float | None
     return defaults.get(sensor_type.lower(), (None, None))
 
 
+def get_default_unit(sensor_type: str) -> str:
+    """
+    Trả về unit mặc định dựa trên loại sensor
+    Returns: unit string
+    """
+    units = {
+        "temperature": "°C",
+        "humidity": "%",
+        "gas": "ppm",
+        "light": "lux",
+        "motion": "",
+    }
+    return units.get(sensor_type.lower(), "")
+
+
+def get_default_name(sensor_type: str) -> str:
+    """
+    Trả về tên mặc định dựa trên loại sensor
+    Returns: name string
+    """
+    names = {
+        "temperature": "Nhiệt độ",
+        "humidity": "Độ ẩm",
+        "gas": "Khí gas",
+        "light": "Ánh sáng",
+        "motion": "Cảm biến chuyển động",
+    }
+    return names.get(sensor_type.lower(), sensor_type)
+
+
 def create_sensor_dict(device_id: str, sensor_type: str, name: str, unit: str = "", pin: int = 0, enabled: bool = True, min_threshold: float = None, max_threshold: float = None, auto_set_threshold: bool = True) -> dict:
     """
     Tạo dict Sensor

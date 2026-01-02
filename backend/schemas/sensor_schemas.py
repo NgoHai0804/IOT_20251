@@ -25,7 +25,7 @@ class SensorCreate(BaseModel):
 class SensorUpdate(BaseModel):
     """Cập nhật cảm biến"""
     name: Optional[str] = None
-    unit: Optional[str] = None
+    type: Optional[str] = None  # temperature, humidity, energy
     pin: Optional[int] = None
 
 

@@ -80,84 +80,95 @@ ACTUATORS = {
 ## Tại sao phải đăng ký?
 - Hệ thống cần biết thiết bị tồn tại
 - Tạo record trong database
+- Tự động tạo sensors với unit, name và threshold dựa trên type
 - Cấp quyền truy cập MQTT topics
 - Liên kết với room (phòng)
 
-## 2.1. Code đăng ký thiết bị
+## 2.1. Đăng ký qua MQTT (Khuyến nghị)
+
+**Lưu ý quan trọng:** Khi đăng ký sensors, bạn chỉ cần gửi `type`, server sẽ tự động:
+- Set `unit` (ví dụ: "°C" cho temperature, "%" cho humidity)
+- Set `name` (ví dụ: "Nhiệt độ" cho temperature, "Độ ẩm" cho humidity)
+- Set `threshold` (ví dụ: (10.0, 40.0) cho temperature, (30.0, 80.0) cho humidity)
 
 ```python
-import requests
 import json
 
-def register_device():
+def register_device(client):
     """
-    Thiết bị tự đăng ký với backend server
-    Trả về: True nếu thành công, False nếu thất bại
+    Đăng ký thiết bị qua MQTT topic device/register
+    Chỉ cần gửi type cho sensors, server sẽ tự động set unit, name và threshold
     """
     
-    # URL endpoint đăng ký
-    register_url = f"{API_BASE_URL}/iot/device/register"
-    
-    # Dữ liệu đăng ký
+    # Payload đăng ký
     register_payload = {
-        "device_id": DEVICE_ID,        # ID tự tạo
-        "device_name": DEVICE_NAME,    # Tên thiết bị
-        "device_type": DEVICE_TYPE,    # Loại thiết bị
-        "device_password": DEVICE_PASSWORD,  # Mật khẩu (tùy chọn)
-        "note": "Auto-registered device"     # Ghi chú
+        "device_id": DEVICE_ID,  # Device tự tạo ID
+        "name": DEVICE_NAME,
+        "type": DEVICE_TYPE,  # "esp32", "arduino", etc.
+        "ip": "",  # Có thể để trống
+        "sensors": [
+            # Chỉ cần gửi type và pin, server sẽ tự động set unit, name và threshold
+            {"sensor_id": "sensor_01", "type": "temperature", "pin": 4},
+            {"sensor_id": "sensor_02", "type": "humidity", "pin": 5},
+            {"sensor_id": "sensor_03", "type": "gas", "pin": 34},
+            # Hoặc có thể gửi đầy đủ (name, unit sẽ được override nếu không có)
+            {"sensor_id": "sensor_04", "type": "light", "name": "Ánh sáng", "unit": "lux", "pin": 6}
+        ],
+        "actuators": [
+            {"actuator_id": "act_01", "type": "relay", "name": "Đèn trần", "pin": 23},
+            {"actuator_id": "act_02", "type": "relay", "name": "Quạt", "pin": 22}
+        ]
     }
     
     try:
-        print(f"🔄 Đang đăng ký thiết bị...")
+        print(f"📝 Đang đăng ký thiết bị qua MQTT...")
+        print(f"   Topic: device/register")
         print(f"   Device ID: {DEVICE_ID}")
-        print(f"   Server: {register_url}")
+        print(f"   Sensors: {len(register_payload['sensors'])} sensors")
+        print(f"   (Chỉ gửi type, server tự set unit/name/threshold)")
         
-        # Gửi request đăng ký
-        response = requests.post(
-            register_url, 
-            json=register_payload, 
-            timeout=10
-        )
+        # Publish đăng ký lên topic device/register
+        topic = "device/register"
+        message = json.dumps(register_payload)
         
-        # Kiểm tra response
-        if response.status_code == 200:
-            result = response.json()
-            
-            if result.get("status"):
-                data = result.get("data", {})
-                print(f"✅ Đăng ký thành công!")
-                print(f"   Device ID: {data.get('device_id')}")
-                print(f"   Device Name: {data.get('device_name')}")
-                print(f"   Status: {data.get('status')}")
-                return True
-            else:
-                print(f"❌ Đăng ký thất bại: {result.get('message')}")
-                return False
+        result = client.publish(topic, message, qos=1)
+        
+        if result.rc == mqtt.MQTT_ERR_SUCCESS:
+            print(f"✅ Đăng ký thành công!")
+            print(f"   Server sẽ tự động tạo sensors với unit, name và threshold")
+            time.sleep(2)  # Đợi server xử lý
+            return True
         else:
-            print(f"❌ HTTP Error: {response.status_code}")
+            print(f"❌ Lỗi gửi đăng ký. Error code: {result.rc}")
             return False
             
-    except requests.exceptions.ConnectionError:
-        print(f"❌ Không thể kết nối đến server: {API_BASE_URL}")
-        print(f"   Kiểm tra server có đang chạy không?")
-        return False
-    except requests.exceptions.Timeout:
-        print(f"❌ Timeout khi đăng ký (>10s)")
-        return False
     except Exception as e:
-        print(f"❌ Lỗi không xác định: {e}")
+        print(f"❌ Lỗi đăng ký: {e}")
         return False
 ```
 
-## 2.2. Xử lý kết quả đăng ký
+## 2.2. Các sensor type được hỗ trợ
+
+Server tự động nhận diện các type sau và set unit/name/threshold tương ứng:
+
+| Type | Unit | Name | Min Threshold | Max Threshold |
+|------|------|------|---------------|---------------|
+| `temperature` | `°C` | `Nhiệt độ` | 10.0 | 40.0 |
+| `humidity` | `%` | `Độ ẩm` | 30.0 | 80.0 |
+| `gas` | `ppm` | `Khí gas` | None | 100.0 |
+| `light` | `lux` | `Ánh sáng` | None | 1000.0 |
+| `motion` | `` | `Cảm biến chuyển động` | None | None |
+
+## 2.3. Xử lý kết quả đăng ký
 
 ```python
-# Trong hàm main()
-registration_success = register_device()
+# Trong hàm main(), sau khi kết nối MQTT
+registration_success = register_device(client)
 
 if registration_success:
-    print("✅ Thiết bị đã sẵn sàng kết nối MQTT")
-    # Tiếp tục bước 3
+    print("✅ Thiết bị đã đăng ký thành công!")
+    print("   Server đã tự động tạo sensors với unit, name và threshold")
+    # Tiếp tục gửi dữ liệu
 else:
     print("❌ Không thể đăng ký. Dừng chương trình.")
     exit(1)
@@ -825,20 +836,22 @@ void setup() {
   }
   Serial.println("WiFi connected!");
   
-  // Register device
+  // Connect MQTT first
+  connectMQTT();
+  
+  // Register device via MQTT (chỉ cần gửi type, server tự set unit/name/threshold)
   if (registerDevice()) {
     Serial.println("Device registered successfully!");
+    Serial.println("Server will auto-set unit, name and thresholds for sensors");
   } else {
     Serial.println("Failed to register device!");
     return;
   }
   
-  // Setup MQTT
+  // Setup MQTT (đã connect ở trên)
   espClient.setInsecure();
   client.setServer(mqtt_server, mqtt_port);
   client.setCallback(callback);
-  
-  connectMQTT();
 }
 
 void loop() {

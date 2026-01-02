@@ -107,6 +107,82 @@ def control_actuator(actuator_id: str, state: bool, user_id: str = None):
         )
 
 
+def update_actuator(actuator_id: str, name: str = None, pin: int = None, enabled: bool = None, user_id: str = None):
+    """
+    Cập nhật thông tin actuator (name, pin, enabled)
+    POST /actuators/{actuator_id}/update
+    {
+      "name": "Đèn phòng khách",
+      "pin": 23,
+      "enabled": true
+    }
+    """
+    try:
+        # Kiểm tra actuator tồn tại
+        actuator = actuators_collection.find_one({"_id": actuator_id})
+        if not actuator:
+            return JSONResponse(
+                status_code=status.HTTP_404_NOT_FOUND,
+                content={
+                    "status": False,
+                    "message": "Actuator not found",
+                    "data": None
+                }
+            )
+
+        device_id = str(actuator["device_id"])
+
+        # Kiểm tra device thuộc về user (nếu có user_id) - từ bảng user_room_devices
+        if user_id:
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    content={
+                        "status": False,
+                        "message": "Access denied: Device does not belong to user",
+                        "data": None
+                    }
+                )
+
+        # Cập nhật thông tin
+        update_data = {"updated_at": datetime.utcnow()}
+        
+        if name is not None:
+            update_data["name"] = name
+        if pin is not None:
+            update_data["pin"] = pin
+        if enabled is not None:
+            update_data["enabled"] = enabled
+
+        actuators_collection.update_one(
+            {"_id": actuator_id},
+            {"$set": update_data}
+        )
+
+        logger.info(f"Đã cập nhật actuator {actuator_id}: name={name}, pin={pin}, enabled={enabled}")
+
+        return JSONResponse(
+            status_code=status.HTTP_200_OK,
+            content={
+                "status": True,
+                "message": "Actuator updated successfully",
+                "data": {"actuator_id": actuator_id, "name": name, "pin": pin, "enabled": enabled}
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Lỗi cập nhật actuator: {str(e)}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "status": False,
+                "message": f"Unexpected error: {str(e)}",
+                "data": None
+            }
+        )
+
+
 def get_actuators_by_device(device_id: str, user_id: str = None):
     """Lấy danh sách actuator theo thiết bị - chỉ tìm theo device_id"""
     try:

@@ -4,10 +4,12 @@ import { AddDeviceDialog } from '@/components/AddDeviceDialog';
 import { EditDeviceDialog } from '@/components/EditDeviceDialog';
 import { DeleteDeviceDialog } from '@/components/DeleteDeviceDialog';
 import { EditSensorThresholdDialog } from '@/components/EditSensorThresholdDialog';
+import { EditSensorNameDialog } from '@/components/EditSensorNameDialog';
+import { EditActuatorNameDialog } from '@/components/EditActuatorNameDialog';
 import { ChartsPanel } from '@/components/ChartsPanel';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
-import { Lightbulb, Fan, AirVent, Plug, Pencil, Trash2 } from 'lucide-react';
+import { Lightbulb, Fan, AirVent, Plug, Pencil, Trash2, Settings } from 'lucide-react';
 import { newDeviceAPI, sensorDataAPI } from '@/services/api';
 import { toast } from 'sonner';
 import type { DevicesProps, Device, Sensor, Actuator, ChartDataPoint } from '@/types';
@@ -61,6 +63,8 @@ export function Devices({
   const [selectedSensorName, setSelectedSensorName] = useState<string | null>(null);
   const isFetchingSensorDataRef = useRef(false); // Flag để tránh gọi trùng lặp
   const [editingSensorThreshold, setEditingSensorThreshold] = useState<Sensor | null>(null);
+  const [editingSensorName, setEditingSensorName] = useState<Sensor | null>(null);
+  const [editingActuatorName, setEditingActuatorName] = useState<Actuator | null>(null);
   const [localDeviceSensors, setLocalDeviceSensors] = useState<Sensor[]>([]);
   const [localDeviceActuators, setLocalDeviceActuators] = useState<Actuator[]>([]);
   const isFetchingDeviceDetailsRef = useRef(false);
@@ -655,8 +659,6 @@ export function Devices({
                         className={`flex-shrink-0 flex-grow-0 rounded-2xl backdrop-blur-xl border transition-all duration-300 cursor-pointer shadow-xl hover:shadow-2xl hover:scale-[1.02] ${
                           isSelected
                             ? 'border-cyan-400/60 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 shadow-cyan-500/40 ring-2 ring-cyan-400/40 scale-[1.02]'
-                            : deviceEnabled
-                            ? 'border-green-400/50 bg-gradient-to-br from-green-500/15 to-emerald-500/15 hover:border-green-400/70'
                             : 'border-slate-700/80 bg-slate-800/60 hover:border-cyan-500/40 hover:bg-slate-800/80'
                         }`}
                         onClick={() => onDeviceClick?.(deviceId)}
@@ -669,8 +671,6 @@ export function Devices({
                           flexGrow: 0,
                           boxShadow: isSelected 
                             ? '0 8px 32px rgba(34, 211, 238, 0.4), 0 0 0 1px rgba(34, 211, 238, 0.3)' 
-                            : deviceEnabled
-                            ? '0 6px 24px rgba(74, 222, 128, 0.25), 0 0 0 1px rgba(74, 222, 128, 0.15)'
                             : '0 4px 16px rgba(0, 0, 0, 0.3)'
                         }}
                       >
@@ -865,18 +865,32 @@ export function Devices({
                                         className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9"
                                       />
                                     )}
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setEditingSensorThreshold(sensor);
-                                      }}
-                                      className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20"
-                                      title="Chỉnh sửa ngưỡng"
-                                    >
-                                      ⚙
-                                    </Button>
+                                    <div className="flex gap-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingSensorName(sensor);
+                                        }}
+                                        className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                        title="Chỉnh sửa tên"
+                                      >
+                                        <Pencil className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setEditingSensorThreshold(sensor);
+                                        }}
+                                        className="h-7 px-2 text-xs text-cyan-200/90 hover:text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                        title="Cài đặt ngưỡng cảm biến"
+                                      >
+                                        <Settings className="h-3.5 w-3.5" />
+                                      </Button>
+                                    </div>
                                   </div>
                                 </div>
                               </div>
@@ -907,18 +921,32 @@ export function Devices({
                                     </span>
                                   </div>
                                 </div>
-                                {onActuatorControl && (
-                                  <Switch
-                                    checked={actuator.state}
-                                    onCheckedChange={(checked) => {
-                                      const actuatorId = actuator._id;
-                                      if (actuatorId) {
-                                        handleActuatorToggle(actuatorId, checked);
-                                      }
+                                <div className="flex items-center gap-2">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingActuatorName(actuator);
                                     }}
-                                    className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9 flex-shrink-0"
-                                  />
-                                )}
+                                    className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20"
+                                    title="Chỉnh sửa tên"
+                                  >
+                                    <Pencil className="h-3 w-3" />
+                                  </Button>
+                                  {onActuatorControl && (
+                                    <Switch
+                                      checked={actuator.state}
+                                      onCheckedChange={(checked) => {
+                                        const actuatorId = actuator._id;
+                                        if (actuatorId) {
+                                          handleActuatorToggle(actuatorId, checked);
+                                        }
+                                      }}
+                                      className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9 flex-shrink-0"
+                                    />
+                                  )}
+                                </div>
                               </div>
                             </div>
                           ))}
@@ -998,6 +1026,54 @@ export function Devices({
             onSuccess={async () => {
               if (onUpdateDevice) {
                 await onUpdateDevice();
+              }
+              // Refresh device details
+              if (selectedDeviceId) {
+                fetchDeviceDetails();
+              }
+            }}
+          />
+        )}
+
+        {/* Edit Sensor Name Dialog */}
+        {editingSensorName && (
+          <EditSensorNameDialog
+            sensor={editingSensorName}
+            open={!!editingSensorName}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingSensorName(null);
+              }
+            }}
+            onSuccess={async () => {
+              if (onUpdateDevice) {
+                await onUpdateDevice();
+              }
+              // Refresh device details
+              if (selectedDeviceId) {
+                fetchDeviceDetails();
+              }
+            }}
+          />
+        )}
+
+        {/* Edit Actuator Name Dialog */}
+        {editingActuatorName && (
+          <EditActuatorNameDialog
+            actuator={editingActuatorName}
+            open={!!editingActuatorName}
+            onOpenChange={(open) => {
+              if (!open) {
+                setEditingActuatorName(null);
+              }
+            }}
+            onSuccess={async () => {
+              if (onUpdateDevice) {
+                await onUpdateDevice();
+              }
+              // Refresh device details
+              if (selectedDeviceId) {
+                fetchDeviceDetails();
               }
             }}
           />

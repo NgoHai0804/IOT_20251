@@ -4,8 +4,11 @@ from utils.database import rooms_collection, devices_collection, user_devices_co
 from models.room_models import create_room_dict
 from models.user_room_device_models import create_user_room_device_dict
 from utils.mqtt_client import mqtt_client
-from datetime import datetime
 import logging
+from datetime import datetime, timedelta
+from bson import ObjectId
+
+TIME_THRESHOLD_SECONDS = 5 * 60  # 5 phút
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +23,9 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
     """
     try:
         user_id = str(user_data["_id"])
+        # Đảm bảo device_id và room_id là string
+        device_id = str(device_id)
+        room_id = str(room_id)
         
         # Kiểm tra room tồn tại và thuộc user
         room = rooms_collection.find_one({"_id": room_id, "user_id": user_id})
@@ -139,6 +145,9 @@ def remove_device_from_room(user_data: dict, room_id: str, device_id: str):
     """
     try:
         user_id = str(user_data["_id"])
+        # Đảm bảo device_id và room_id là string
+        device_id = str(device_id)
+        room_id = str(room_id)
         
         # Kiểm tra room tồn tại và thuộc user
         room = rooms_collection.find_one({"_id": room_id, "user_id": user_id})
@@ -656,11 +665,14 @@ def control_room(room_id: str, action: str, user_id: str = None):
 # Get Room with Devices, Sensors, Actuators (với dữ liệu sensor mới nhất)
 # ==========================
 def get_room_details(room_id: str, user_id: str = None):
-    """Lấy thông tin chi tiết phòng kèm devices, sensors với dữ liệu mới nhất, actuators (theo user nếu có)"""
+    """Lấy chi tiết phòng + devices (không sensors) + averaged_sensors"""
+
     try:
+        # ===================== 1. ROOM =====================
         query = {"_id": room_id}
         if user_id:
             query["user_id"] = user_id
+
         room = rooms_collection.find_one(query)
         if not room:
             return JSONResponse(
@@ -672,17 +684,15 @@ def get_room_details(room_id: str, user_id: str = None):
                 }
             )
 
-        # Lấy devices từ bảng user_room_devices (cấu trúc mới)
-        # Chỉ lấy những links có room_id khớp với room_id hiện tại (không phải None)
-        user_room_device_links = list(user_room_devices_collection.find({
+        # ===================== 2. DEVICE IDS =====================
+        links = list(user_room_devices_collection.find({
             "user_id": user_id,
             "room_id": room_id
         }))
-        
-        if not user_room_device_links:
+
+        if not links:
             room["devices"] = []
-            room["sensors"] = []
-            room["actuators"] = []
+            room["averaged_sensors"] = []
             return JSONResponse(
                 status_code=status.HTTP_200_OK,
                 content={
@@ -691,69 +701,127 @@ def get_room_details(room_id: str, user_id: str = None):
                     "data": sanitize_for_json(room)
                 }
             )
-        
-        # Lấy device_ids từ links (đảm bảo device_id tồn tại)
-        device_ids = [link["device_id"] for link in user_room_device_links if "device_id" in link and link["device_id"]]
-        
-        # Lấy devices
-        devices = list(devices_collection.find({"_id": {"$in": device_ids}}))
 
-        # Lấy sensors và actuators
+        device_ids = [link["device_id"] for link in links if link.get("device_id")]
+
+        # ===================== 3. DEVICES (NO sensors) =====================
+        devices_raw = list(devices_collection.find({"_id": {"$in": device_ids}}))
+
+        devices = []
+        for d in devices_raw:
+            devices.append({
+                "_id": str(d["_id"]),
+                "name": d.get("name", ""),
+                "type": d.get("type", ""),
+                "status": d.get("status", ""),
+                "enabled": d.get("enabled", False),
+                "created_at": d.get("created_at"),
+                "updated_at": d.get("updated_at"),
+                "note": d.get("note"),
+                "device_name": d.get("device_name")
+            })
+
+        # ===================== 4. SENSORS =====================
         sensors = list(sensors_collection.find({"device_id": {"$in": device_ids}}))
-        actuators = list(actuators_collection.find({"device_id": {"$in": device_ids}}))
 
-        # Lấy dữ liệu sensor mới nhất cho tất cả sensors
-        sensor_ids = [s["_id"] for s in sensors]
-        latest_sensor_data_map = {}
-        
-        if sensor_ids:
-            # Lấy dữ liệu mới nhất cho mỗi sensor
-            pipeline = [
-                {"$match": {"sensor_id": {"$in": sensor_ids}}},
-                {"$sort": {"timestamp": -1}},
-                {
-                    "$group": {
-                        "_id": "$sensor_id",
-                        "latest_data": {"$first": "$$ROOT"}
-                    }
-                },
-                {"$replaceRoot": {"newRoot": "$latest_data"}}
-            ]
-            
-            latest_sensor_data_list = list(sensor_data_collection.aggregate(pipeline))
-            for data in latest_sensor_data_list:
-                sensor_id = data.get("sensor_id")
-                if sensor_id:
-                    latest_sensor_data_map[sensor_id] = {
-                        "value": data.get("value"),
-                        "timestamp": data.get("timestamp"),
-                        "created_at": data.get("created_at")
-                    }
+        # --- Lấy dữ liệu mới nhất cho từng sensor ---
+        sensor_latest = {}
 
-        # Cập nhật sensors với dữ liệu mới nhất
+        for s in sensors:
+            sid_str = str(s["_id"])
+            latest = sensor_data_collection.find_one(
+                {"sensor_id": {"$in": [sid_str, s["_id"]]}},
+                sort=[("timestamp", -1)]
+            )
+            if latest:
+                sensor_latest[sid_str] = {
+                    "value": latest.get("value"),
+                    "timestamp": latest.get("timestamp") or latest.get("created_at")
+                }
+
+        # --- Gắn data vào sensor ---
         sensors_with_data = []
-        for sensor in sensors:
-            sensor_dict = sensor.copy()
-            sensor_id = sensor_dict["_id"]
-            
-            # Thêm dữ liệu mới nhất nếu có
-            if sensor_id in latest_sensor_data_map:
-                latest_data = latest_sensor_data_map[sensor_id]
-                sensor_dict["value"] = latest_data.get("value")
-                sensor_dict["lastUpdate"] = latest_data.get("timestamp") or latest_data.get("created_at")
-            
-            sensors_with_data.append(sensor_dict)
+        for s in sensors:
+            sd = s.copy()
+            sid = str(sd["_id"])
 
-        # Xử lý devices: chỉ giữ thông tin cần thiết, bỏ sensors và actuators
-        for device in devices:
-            device["_id"] = str(device["_id"])
-            # Xóa device_password và các trường không cần thiết
-            device.pop("device_password", None)
-            # Không thêm sensors và actuators vào device
+            if sid in sensor_latest:
+                sd["value"] = sensor_latest[sid]["value"]
+                sd["lastUpdate"] = sensor_latest[sid]["timestamp"]
+            else:
+                sd["value"] = None
+                sd["lastUpdate"] = None
 
+            sensors_with_data.append(sd)
+
+        # ===================== 5. GROUP BY TYPE =====================
+        sensors_by_type = {}
+        for s in sensors_with_data:
+            stype = s.get("type", "unknown")
+            sensors_by_type.setdefault(stype, []).append(s)
+
+        # ===================== 6. AVERAGED SENSORS =====================
+        averaged_sensors = []
+
+        for sensor_type, type_sensors in sensors_by_type.items():
+            valid = [
+                s for s in type_sensors
+                if s.get("value") is not None and isinstance(s.get("lastUpdate"), datetime)
+            ]
+
+            if not valid:
+                averaged_sensors.append({
+                    "type": sensor_type,
+                    "name": (
+                        "Nhiệt độ" if sensor_type == "temperature"
+                        else "Độ ẩm" if sensor_type == "humidity"
+                        else "Khí gas" if sensor_type == "gas"
+                        else sensor_type
+                    ),
+                    "unit": type_sensors[0].get("unit", ""),
+                    "value": None,
+                    "lastUpdate": None
+                })
+                continue
+
+            # Sensor mới nhất
+            valid.sort(key=lambda x: x["lastUpdate"], reverse=True)
+            latest_sensor = valid[0]
+            latest_time = latest_sensor["lastUpdate"]
+
+            # Giữ sensor trong 5 phút
+            in_range = [
+                s for s in valid
+                if abs((latest_time - s["lastUpdate"]).total_seconds()) <= TIME_THRESHOLD_SECONDS
+            ]
+
+            if len(in_range) == 1:
+                final_value = latest_sensor["value"]
+            else:
+                final_value = round(
+                    sum(s["value"] for s in in_range) / len(in_range),
+                    1
+                )
+
+            averaged_sensors.append({
+                "type": sensor_type,
+                "name": (
+                    "Nhiệt độ" if sensor_type == "temperature"
+                    else "Độ ẩm" if sensor_type == "humidity"
+                    else "Khí gas" if sensor_type == "gas"
+                    else sensor_type
+                ),
+                "unit": latest_sensor.get("unit", ""),
+                "value": final_value,
+                "lastUpdate": latest_time
+            })
+
+        # ===================== 7. RESPONSE =====================
         room["devices"] = devices
-        room["sensors"] = sensors_with_data
-        room["actuators"] = actuators
+        room["averaged_sensors"] = averaged_sensors
+
+        room.pop("sensors", None)
+        room.pop("actuators", None)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -765,7 +833,7 @@ def get_room_details(room_id: str, user_id: str = None):
         )
 
     except Exception as e:
-        logger.error(f" Error getting room details: {str(e)}")
+        logger.error(f"Error getting room details: {str(e)}")
         import traceback
         logger.error(traceback.format_exc())
         return JSONResponse(

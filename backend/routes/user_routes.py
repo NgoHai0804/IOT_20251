@@ -40,3 +40,8 @@ async def info_user_route(current_user: dict = Depends(get_current_user)):
 @router.post("/update", response_model=ResponseSchema)
 async def change_user_info_route(payload: UserUpdate, current_user: dict = Depends(get_current_user)):
     return user_controller.change_user_info(payload, current_user)
+
+
+@router.post("/change-password", response_model=ResponseSchema)
+async def change_password_route(payload: ChangePasswordRequest, current_user: dict = Depends(get_current_user)):
+    return user_controller.change_password(payload, current_user)

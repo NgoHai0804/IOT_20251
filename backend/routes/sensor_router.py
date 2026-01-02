@@ -26,6 +26,28 @@ async def get_sensors_by_device_route(device_id: str, current_user: dict = Depen
     return sensor_controller.get_sensors_by_device(device_id, user_id)
 
 
+@router.post("/{sensor_id}/update", response_model=ResponseSchema)
+async def update_sensor_route(sensor_id: str, payload: SensorUpdate, current_user: dict = Depends(get_current_user)):
+    """
+    Cập nhật thông tin cảm biến (name, type, pin)
+    Unit sẽ tự động được set dựa trên type
+    POST /sensors/{sensor_id}/update
+    {
+      "name": "Nhiệt độ phòng khách",
+      "type": "temperature",
+      "pin": 4
+    }
+    """
+    user_id = str(current_user["_id"])
+    return sensor_controller.update_sensor(
+        sensor_id, 
+        payload.name, 
+        payload.type, 
+        payload.pin, 
+        user_id
+    )
+
+
 @router.post("/{sensor_id}/threshold", response_model=ResponseSchema)
 async def update_sensor_threshold_route(sensor_id: str, payload: SensorThresholdUpdate, current_user: dict = Depends(get_current_user)):
     """

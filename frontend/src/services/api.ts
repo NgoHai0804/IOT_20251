@@ -260,6 +260,50 @@ export const authAPI = {
   },
   
   getToken: getAuthToken,
+  
+  getUserInfo: async (): Promise<any> => {
+    const response = await apiRequest<any>('/users/info');
+    
+    if (response.status && response.data) {
+      // Cập nhật user_info trong localStorage
+      localStorage.setItem('user_info', JSON.stringify(response.data));
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to get user info');
+  },
+  
+  updateUserInfo: async (fullName?: string, phone?: string): Promise<any> => {
+    const response = await apiRequest<any>('/users/update', {
+      method: 'POST',
+      body: JSON.stringify({
+        full_name: fullName || undefined,
+        phone: phone || undefined,
+      }),
+    });
+    
+    if (response.status && response.data) {
+      // Cập nhật user_info trong localStorage
+      localStorage.setItem('user_info', JSON.stringify(response.data));
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to update user info');
+  },
+  
+  changePassword: async (oldPassword: string, newPassword: string): Promise<void> => {
+    const response = await apiRequest<void>('/users/change-password', {
+      method: 'POST',
+      body: JSON.stringify({
+        old_password: oldPassword,
+        new_password: newPassword,
+      }),
+    });
+    
+    if (!response.status) {
+      throw new Error(response.message || 'Failed to change password');
+    }
+  },
 };
 
 // API thiết bị
@@ -607,6 +651,23 @@ export const newSensorAPI = {
     
     throw new Error(response.message || 'Failed to update sensor threshold');
   },
+
+  updateSensor: async (sensorId: string, name?: string, type?: string, pin?: number): Promise<any> => {
+    const response = await apiRequest<any>(`/sensors/${sensorId}/update`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name || undefined,
+        type: type || undefined,
+        pin: pin || undefined,
+      }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to update sensor');
+  },
 };
 
 // API điều khiển mới
@@ -632,6 +693,23 @@ export const newActuatorAPI = {
     }
     
     return [];
+  },
+
+  updateActuator: async (actuatorId: string, name?: string, pin?: number, enabled?: boolean): Promise<any> => {
+    const response = await apiRequest<any>(`/actuators/${actuatorId}/update`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name || undefined,
+        pin: pin || undefined,
+        enabled: enabled !== undefined ? enabled : undefined,
+      }),
+    });
+    
+    if (response.status && response.data) {
+      return response.data;
+    }
+    
+    throw new Error(response.message || 'Failed to update actuator');
   },
 };
 
