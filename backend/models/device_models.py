@@ -46,11 +46,3 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
     # room_id và user_id không còn được sử dụng
     return device_dict
 
-
-def create_user_device_dict(user_id: str, device_id: str) -> dict:
-    """Liên kết User <-> Device"""
-    return {
-        "user_id": user_id,
-        "device_id": device_id,
-        "created_at": get_vietnam_now_naive()
-    }

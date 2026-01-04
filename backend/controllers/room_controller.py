@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
-from utils.database import rooms_collection, devices_collection, user_devices_collection, user_room_devices_collection, sensors_collection, actuators_collection, sensor_data_collection, sanitize_for_json
+from utils.database import rooms_collection, devices_collection, user_room_devices_collection, sensors_collection, actuators_collection, sensor_data_collection, sanitize_for_json
 from models.room_models import create_room_dict
 from models.user_room_device_models import create_user_room_device_dict
 from utils.mqtt_client import mqtt_client
@@ -42,7 +42,7 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
                 }
             )
         
-        user_device_link = user_devices_collection.find_one({
+        user_device_link = user_room_devices_collection.find_one({
             "user_id": user_id,
             "device_id": device_id
         })

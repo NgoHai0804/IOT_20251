@@ -26,6 +26,7 @@ export interface Device {
   actuators?: Actuator[];
   created_at?: string;
   updated_at?: string;
+  last_seen?: string; // Timestamp của lần cuối nhận được message từ device
   // room_id đã bị bỏ - thay vào đó Room chứa device_ids
 }
 

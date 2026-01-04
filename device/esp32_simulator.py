@@ -59,7 +59,6 @@ from typing import Dict, List
 import os
 import requests
 
-
 # ========== Cấu hình ==========
 MQTT_BROKER = "707d6798baa54e22a0d6a43694d39e47.s1.eu.hivemq.cloud"
 MQTT_PORT = 8883
@@ -67,21 +66,21 @@ MQTT_USERNAME = "ngohai"
 MQTT_PASSWORD = "NgoHai0804"
 
 # Device ID (device tự tạo và gửi lên server, dùng làm identifier duy nhất)
-DEVICE_ID = "123"
-DEVICE_PASSWORD = None
+DEVICE_ID = "test"
+DEVICE_PASSWORD = "123"
 
 # Sensor IDs
-SENSOR_TEMP_ID = "sensor_123_01"
-SENSOR_HUMIDITY_ID = "sensor_123_02"
-SENSOR_GAS_ID = "sensor_123_03"
+SENSOR_TEMP_ID = "test1"
+SENSOR_HUMIDITY_ID = "test2"
+SENSOR_GAS_ID = "test3"
 
 # Actuator IDs
-ACTUATOR_RELAY1_ID = "act_123_01"
-ACTUATOR_RELAY2_ID = "act_123_02"
+ACTUATOR_RELAY1_ID = "test4"
+ACTUATOR_RELAY2_ID = "test5"
 
 # API URL (có thể cấu hình qua env)
 API_BASE_URL = "http://localhost:8000"
-# API_BASE_URL = 'https://iot-20251.onrender.com'
+API_BASE_URL = 'https://iot-20251.onrender.com'
 
 # ========== State Variables ==========
 device_enabled = True
@@ -115,9 +114,6 @@ def on_connect(client, userdata, flags, rc, properties=None):
             command_topic = f"device/{DEVICE_ID}/command"
             client.subscribe(command_topic, qos=1)
             print(f"📡 Subscribed to: {command_topic}")
-            
-            # Gửi trạng thái online
-            send_device_status(client)
         else:
             print(f"⚠️ Device ID not yet registered, skipping MQTT subscriptions")
     else:
@@ -256,21 +252,6 @@ def send_sensor_data(client):
             print(f"      - {sensor['sensor_id']}: {sensor['value']}")
 
 
-def send_device_status(client):
-    """Gửi trạng thái thiết bị"""
-    global DEVICE_ID
-    if not DEVICE_ID:
-        return
-    
-    payload = {
-        "status": "online"
-    }
-    
-    topic = f"device/{DEVICE_ID}/status"
-    client.publish(topic, json.dumps(payload), qos=1)
-    print(f"📤 Published status to {topic}")
-
-
 def turn_off_all_sensors():
     """Tắt tất cả sensors"""
     global sensor_states
@@ -398,9 +379,19 @@ def main():
         print("   Please update them in the script.")
         return
     
-    # Connect
+    # Connect với Last Will and Testament (LWT)
+    # LWT sẽ tự động được broker publish khi device disconnect bất thường
     try:
         print(f"\n🔌 Connecting to MQTT broker...")
+        
+        # Thiết lập Last Will and Testament (LWT)
+        # Khi device disconnect bất thường, broker sẽ tự động publish message này
+        lwt_topic = f"device/{DEVICE_ID}/lwt"
+        lwt_payload = json.dumps({"status": "offline"})
+        client.will_set(lwt_topic, lwt_payload, qos=1, retain=False)
+        print(f"✅ Đã thiết lập Last Will and Testament: {lwt_topic}")
+        print(f"   → Broker sẽ tự động thông báo khi device disconnect")
+        
         client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
         client.loop_start()
         
@@ -423,16 +414,19 @@ def main():
         # Main loop
         last_sensor_send = 0
         last_status_print = 0
-        sensor_interval = 5  # Gửi mỗi 5 giây
+        sensor_interval = 5  # Gửi sensor data mỗi 5 giây
         status_print_interval = 30  # In status mỗi 30 giây
         
-        print("\n✅ Simulator started! Press Ctrl+C to stop.\n")
+        print("\n✅ Simulator started! Press Ctrl+C to stop.")
+        print("   → LWT đã được thiết lập, backend sẽ tự động phát hiện khi device disconnect")
+        print("   → Chỉ cần gửi sensor data, không cần gửi status message nữa\n")
         
         try:
             while True:
                 current_time = time.time()
                 
                 # Gửi dữ liệu sensor định kỳ
+                # Sensor data sẽ tự động cập nhật last_seen và status = "online"
                 if current_time - last_sensor_send >= sensor_interval:
                     send_sensor_data(client)
                     last_sensor_send = current_time

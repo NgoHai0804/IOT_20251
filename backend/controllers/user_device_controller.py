@@ -1,7 +1,6 @@
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
-from utils.database import devices_collection, user_devices_collection, user_room_devices_collection, rooms_collection, sanitize_for_json
-from models.device_models import create_user_device_dict
+from utils.database import devices_collection, user_room_devices_collection, rooms_collection, sanitize_for_json
 from models.user_room_device_models import create_user_room_device_dict
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
@@ -126,12 +125,6 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
             user_room_device = create_user_room_device_dict(user_id, device_id, room_id=room_id)
             user_room_devices_collection.insert_one(user_room_device)
             logger.info(f"Đã tạo liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
-        
-        # Giữ lại legacy user_devices_collection để tương thích
-        existing_legacy_link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
-        if not existing_legacy_link:
-            user_device = create_user_device_dict(user_id, device_id)
-            user_devices_collection.insert_one(user_device)
 
         response_data = {
             "device_id": device_id,
@@ -174,7 +167,7 @@ def get_info_device(user_data: dict, id_device: str):
         id_device = str(id_device)
 
         # Tìm liên kết
-        link = user_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
+        link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
         if not link:
             return {
                 "status": False,
@@ -325,7 +318,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
         id_device = str(id_device)
         
         # Kiểm tra quyền sở hữu - chỉ người đã liên kết với thiết bị mới có thể cập nhật
-        link = user_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
+        link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": id_device})
         if not link:
             return JSONResponse(
                 status_code=status.HTTP_200_OK,

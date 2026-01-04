@@ -1,6 +1,6 @@
 from fastapi import HTTPException, status
 from fastapi.responses import JSONResponse
-from utils.database import devices_collection, user_devices_collection, user_room_devices_collection, rooms_collection, sensors_collection, actuators_collection, sanitize_for_json
+from utils.database import devices_collection, user_room_devices_collection, rooms_collection, sensors_collection, actuators_collection, sanitize_for_json
 from utils.mqtt_client import mqtt_client
 from datetime import datetime
 from utils.timezone import get_vietnam_now_naive

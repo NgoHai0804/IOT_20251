@@ -578,6 +578,7 @@ export const newDeviceAPI = {
     const response = await apiRequest<any>(`/devices/${deviceId}/detail`);
     
     if (response.status && response.data) {
+      // Response mới: sensors và actuators đã có sẵn trong data object
       return {
         device: response.data,
         sensors: response.data.sensors || [],

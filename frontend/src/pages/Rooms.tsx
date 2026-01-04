@@ -807,6 +807,7 @@ export function Rooms({
                   const deviceEnabled = localDeviceEnabled.has(deviceId) 
                     ? localDeviceEnabled.get(deviceId)!
                     : (device.enabled !== undefined ? device.enabled : false);
+                  const deviceStatus = device.status || 'offline'; // online hoặc offline
                   
                   // Icon mapping
                   const iconMap: Record<string, typeof Lightbulb> = {
@@ -821,9 +822,9 @@ export function Rooms({
                     <div
                       key={deviceId}
                       className={`box-border rounded-xl backdrop-blur-xl border p-2 sm:p-2.5 transition-all duration-300 shadow-md hover:shadow-xl w-full ${
-                        deviceEnabled
-                          ? 'border-green-400/50 bg-gradient-to-br from-green-500/20 to-emerald-500/20'
-                          : 'border-slate-700/80 bg-slate-800/60 hover:border-cyan-500/40 hover:bg-slate-800/80'
+                        deviceStatus === 'online'
+                          ? 'border-green-500/40 bg-gradient-to-br from-green-500/15 to-emerald-600/15 hover:border-green-500/60 hover:from-green-500/20 hover:to-emerald-600/20'
+                          : 'border-red-500/40 bg-gradient-to-br from-red-500/15 to-rose-600/15 hover:border-red-500/60 hover:from-red-500/20 hover:to-rose-600/20'
                       }`}
                       style={{ width: '100%', maxWidth: '100%', boxSizing: 'border-box' }}
                     >
@@ -842,17 +843,35 @@ export function Rooms({
                           
                           {/* Name + Type */}
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-bold text-xs sm:text-sm truncate">
-                              {device.name}
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <h4 className="text-white font-bold text-xs sm:text-sm truncate">
+                                {device.name}
+                              </h4>
+                              <span className={`flex-shrink-0 w-1.5 h-1.5 rounded-full ${
+                                deviceStatus === 'online' 
+                                  ? 'bg-green-500 shadow-lg shadow-green-500/50' 
+                                  : 'bg-red-500 shadow-lg shadow-red-500/50'
+                              }`} 
+                              title={deviceStatus === 'online' ? 'Online' : 'Offline'}
+                              />
+                            </div>
                             <p className="text-cyan-200/70 text-xs truncate capitalize font-medium">
                               {device.type}
                             </p>
                           </div>
                         </div>
                         
-                        {/* Controls - Switch and Detail Button */}
-                        <div className="flex items-center gap-1 flex-shrink-0">
+                        {/* Controls - Status, Switch and Detail Button */}
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          {/* Online/Offline Status */}
+                          <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            deviceStatus === 'online'
+                              ? 'bg-green-500/25 text-green-400 border border-green-500/30'
+                              : 'bg-red-500/30 text-red-400 border border-red-500/50 shadow-sm shadow-red-500/20'
+                          }`}>
+                            {deviceStatus === 'online' ? 'Online' : 'Offline'}
+                          </span>
+                          
                           {/* Chi tiết Button */}
                           <Button
                             variant="ghost"
@@ -1003,6 +1022,7 @@ export function Rooms({
                     const deviceEnabled = localDeviceEnabled.has(deviceId) 
                       ? localDeviceEnabled.get(deviceId)!
                       : (device.enabled !== undefined ? device.enabled : false);
+                    const deviceStatus = device.status || 'offline'; // online hoặc offline
                     
                     const iconMap: Record<string, typeof Lightbulb> = {
                       light: Lightbulb,
@@ -1024,27 +1044,45 @@ export function Rooms({
                       >
                         <div className="flex items-center gap-3">
                           <div 
-                            className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+                            className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 relative ${
                               deviceEnabled ? 'bg-green-500/20' : 'bg-slate-500/20'
                             }`}
                           >
                             <Icon className={`w-5 h-5 ${deviceEnabled ? 'text-green-400' : 'text-slate-400'}`} />
+                            <span className={`absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full ${
+                              deviceStatus === 'online' 
+                                ? 'bg-green-500 shadow-lg shadow-green-500/50' 
+                                : 'bg-red-500 shadow-lg shadow-red-500/50'
+                            }`} 
+                            title={deviceStatus === 'online' ? 'Online' : 'Offline'}
+                            />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <h4 className="text-white font-bold text-sm truncate mb-0.5">
-                              {device.name}
-                            </h4>
+                            <div className="flex items-center gap-1.5 mb-0.5">
+                              <h4 className="text-white font-bold text-sm truncate">
+                                {device.name}
+                              </h4>
+                            </div>
                             <p className="text-cyan-200/60 text-xs truncate capitalize">
                               {device.type}
                             </p>
                           </div>
-                          <span className={`text-xs font-semibold px-2 py-0.5 rounded flex-shrink-0 ${
-                            deviceEnabled 
-                              ? 'bg-green-500/20 text-green-400' 
-                              : 'bg-slate-500/20 text-slate-400'
-                          }`}>
-                            {deviceEnabled ? 'ON' : 'OFF'}
-                          </span>
+                          <div className="flex flex-col items-end gap-1 flex-shrink-0">
+                            <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                              deviceStatus === 'online'
+                                ? 'bg-green-500/25 text-green-400 border border-green-500/30'
+                                : 'bg-red-500/30 text-red-400 border border-red-500/50 shadow-sm shadow-red-500/20'
+                            }`}>
+                              {deviceStatus === 'online' ? 'Online' : 'Offline'}
+                            </span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded ${
+                              deviceEnabled 
+                                ? 'bg-blue-500/20 text-blue-400' 
+                                : 'bg-slate-500/20 text-slate-400'
+                            }`}>
+                              {deviceEnabled ? 'ON' : 'OFF'}
+                            </span>
+                          </div>
                         </div>
                       </div>
                     );

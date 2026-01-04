@@ -6,6 +6,7 @@ from routes import user_routes, user_device_router, sensor_data_router, room_rou
 from utils.mqtt_client import mqtt_client
 import logging
 import os
+import asyncio
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -99,6 +100,20 @@ def root():
 def health_check():
     return {"status": "hoạt động bình thường"}
 
+# Background task để kiểm tra và cập nhật trạng thái offline cho devices
+async def check_offline_devices_periodically():
+    """Chạy định kỳ để kiểm tra và cập nhật trạng thái offline cho devices"""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Chạy mỗi 60 giây
+            # Tăng timeout lên 5 phút để tránh false positive (device có thể tạm thời không gửi message)
+            mqtt_client.check_and_update_offline_devices(timeout_minutes=5)
+        except Exception as e:
+            logger.error(f"Lỗi trong background task kiểm tra offline devices: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            await asyncio.sleep(60)  # Đợi 60 giây trước khi thử lại
+
 # Sự kiện khởi động - Kết nối MQTT khi server khởi động
 @app.on_event("startup")
 async def startup_event():
@@ -106,6 +121,10 @@ async def startup_event():
     try:
         mqtt_client.connect()
         logger.info("Đã khởi tạo MQTT client")
+        
+        # Khởi động background task để kiểm tra offline devices
+        asyncio.create_task(check_offline_devices_periodically())
+        logger.info("Đã khởi động background task kiểm tra trạng thái offline devices")
     except Exception as e:
         logger.error(f"Lỗi khởi tạo MQTT client: {str(e)}")
 

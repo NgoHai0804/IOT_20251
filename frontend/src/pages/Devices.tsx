@@ -13,6 +13,7 @@ import { Lightbulb, Fan, AirVent, Plug, Pencil, Trash2, Settings } from 'lucide-
 import { newDeviceAPI, sensorDataAPI } from '@/services/api';
 import { toast } from 'sonner';
 import type { DevicesProps, Device, Sensor, Actuator, ChartDataPoint } from '@/types';
+import { toVietnamISOString } from '@/utils/timezone';
 
 const iconMap: Record<string, typeof Lightbulb> = {
   light: Lightbulb,
@@ -27,6 +28,36 @@ const colorMap: Record<string, string> = {
   ac: 'from-indigo-500 to-purple-500',
   plug: 'from-green-500 to-emerald-500',
 };
+
+// Helper function để format thời gian
+function formatTimeAgo(date: Date): string {
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffSecs = Math.floor(diffMs / 1000);
+  const diffMins = Math.floor(diffSecs / 60);
+  const diffHours = Math.floor(diffMins / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffSecs < 10) {
+    return 'Vừa xong';
+  } else if (diffSecs < 60) {
+    return `${diffSecs} giây trước`;
+  } else if (diffMins === 1) {
+    return '1 phút trước';
+  } else if (diffMins < 60) {
+    return `${diffMins} phút trước`;
+  } else if (diffHours === 1) {
+    return '1 giờ trước';
+  } else if (diffHours < 24) {
+    return `${diffHours} giờ trước`;
+  } else if (diffDays === 1) {
+    return '1 ngày trước';
+  } else if (diffDays < 7) {
+    return `${diffDays} ngày trước`;
+  } else {
+    return date.toLocaleDateString('vi-VN', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  }
+}
 
 export function Devices({
   devices,
@@ -67,29 +98,62 @@ export function Devices({
   const [editingActuatorName, setEditingActuatorName] = useState<Actuator | null>(null);
   const [localDeviceSensors, setLocalDeviceSensors] = useState<Sensor[]>([]);
   const [localDeviceActuators, setLocalDeviceActuators] = useState<Actuator[]>([]);
-  const isFetchingDeviceDetailsRef = useRef(false);
+  const fetchingDeviceRef = useRef<Set<string>>(new Set()); // Track devices đang được fetch để tránh duplicate calls
   
-  const fetchDeviceDetails = useCallback(async () => {
-    if (!selectedDeviceId) {
+  const fetchDeviceDetails = useCallback(async (deviceId?: string) => {
+    const targetDeviceId = deviceId || selectedDeviceId;
+    if (!targetDeviceId) {
       return;
     }
     
-    if (isFetchingDeviceDetailsRef.current) {
-      return;
+    // Kiểm tra xem device đang được fetch chưa (tránh duplicate calls)
+    if (fetchingDeviceRef.current.has(targetDeviceId)) {
+      return; // Đang fetch rồi, không gọi lại
     }
     
-    isFetchingDeviceDetailsRef.current = true;
+    fetchingDeviceRef.current.add(targetDeviceId);
     
     try {
-      const deviceDetail = await newDeviceAPI.getDeviceDetail(selectedDeviceId);
+      const deviceDetail = await newDeviceAPI.getDeviceDetail(targetDeviceId);
       
-      const sensors = deviceDetail.sensors || [];
-      const actuators = deviceDetail.actuators || [];
+      // Response mới: sensors và actuators đã có sẵn trong device object
+      const sensors = deviceDetail.sensors || deviceDetail.device?.sensors || [];
+      const actuators = deviceDetail.actuators || deviceDetail.device?.actuators || [];
+      
+      // Cập nhật device object với đầy đủ thông tin: status, enabled, last_seen, sensors, actuators
+      if (deviceDetail.device) {
+        const deviceData = {
+          ...deviceDetail.device,
+          sensors: sensors,
+          actuators: actuators
+        };
+        
+        console.log('Dispatching device-updated event for:', targetDeviceId, {
+          status: deviceData.status,
+          enabled: deviceData.enabled,
+          last_seen: deviceData.last_seen
+        });
+        
+        // Dispatch event để cập nhật device trong list với tất cả thông tin
+        const event = new CustomEvent(`device-updated-${targetDeviceId}`, { 
+          detail: { 
+            device: deviceData
+          },
+          bubbles: true
+        });
+        
+        window.dispatchEvent(event);
+        
+        // Gọi onUpdateDevice để refresh data nếu có
+        if (onUpdateDevice) {
+          await onUpdateDevice();
+        }
+      }
       
       if (sensors.length > 0) {
         try {
           const latestSensorData = await sensorDataAPI.getLatestSensorData({
-            device_id: selectedDeviceId,
+            device_id: targetDeviceId,
           });
           
           const sensorValueMap = new Map<string, { value: number; timestamp: string }>();
@@ -126,13 +190,11 @@ export function Devices({
       setLocalDeviceActuators(actuators);
     } catch (error) {
       console.error('Lỗi khi lấy thông tin thiết bị:', error);
-      if (!isFetchingDeviceDetailsRef.current) {
-        toast.error('Không thể tải thông tin thiết bị', { duration: 1000 });
-      }
+      toast.error('Không thể tải thông tin thiết bị', { duration: 1000 });
       setLocalDeviceSensors([]);
       setLocalDeviceActuators([]);
     } finally {
-      isFetchingDeviceDetailsRef.current = false;
+      fetchingDeviceRef.current.delete(targetDeviceId);
     }
   }, [selectedDeviceId]);
 
@@ -152,12 +214,6 @@ export function Devices({
     fetchDeviceDetails().finally(() => {
       setLoadingSensorData(false);
     });
-    
-    const interval = setInterval(() => {
-      fetchDeviceDetails();
-    }, 10000);
-    
-    return () => clearInterval(interval);
   }, [selectedDeviceId, fetchDeviceDetails]);
   
   useEffect(() => {
@@ -331,15 +387,26 @@ export function Devices({
 
       setSelectedSensorName(sensor.name);
 
-      const endDate = new Date();
-      const startDate = new Date();
-      startDate.setDate(startDate.getDate() - selectedDays);
+      // Tính toán thời gian theo giờ Việt Nam
+      // Lấy thời gian hiện tại và chuyển sang giờ Việt Nam
+      const now = new Date();
+      const localOffset = now.getTimezoneOffset(); // offset của timezone hiện tại (phút)
+      const vietnamOffset = -420; // offset của Việt Nam (UTC+7 = -420 phút)
+      const offsetDiff = (vietnamOffset - localOffset) * 60 * 1000; // chênh lệch (ms)
+      const vietnamNow = new Date(now.getTime() + offsetDiff);
+      
+      // Tính thời gian bắt đầu (selectedDays ngày trước theo giờ VN)
+      const vietnamStartDate = new Date(vietnamNow.getTime() - (selectedDays * 24 * 60 * 60 * 1000));
+      
+      // Chuyển sang UTC để gửi lên server
+      const startTime = vietnamStartDate.toISOString();
+      const endTime = vietnamNow.toISOString();
 
       const sensorData = await sensorDataAPI.getSensorData({
         sensor_id: sensorId,
         limit: 1000,
-        start_time: startDate.toISOString(),
-        end_time: endDate.toISOString(),
+        start_time: startTime,
+        end_time: endTime,
       });
 
       if (!sensorData || sensorData.length === 0) {
@@ -591,6 +658,7 @@ export function Devices({
                     const deviceId = device._id;
                     const isSelected = selectedDeviceId === deviceId;
                     const deviceEnabled = device.enabled !== undefined ? device.enabled : false;
+                    const deviceStatus = device.status || 'offline'; // online hoặc offline
                     
                     const metadata = deviceMetadata.get(deviceId) || {
                       sensorsCount: 0,
@@ -605,14 +673,28 @@ export function Devices({
                         className={`flex-shrink-0 flex-grow-0 rounded-2xl backdrop-blur-xl border transition-all duration-300 cursor-pointer shadow-xl hover:shadow-2xl hover:scale-[1.02] ${
                           isSelected
                             ? 'border-cyan-400/60 bg-gradient-to-br from-cyan-500/20 to-blue-600/20 shadow-cyan-500/40 ring-2 ring-cyan-400/40 scale-[1.02]'
-                            : 'border-slate-700/80 bg-slate-800/60 hover:border-cyan-500/40 hover:bg-slate-800/80'
+                            : deviceStatus === 'online'
+                              ? 'border-green-500/40 bg-gradient-to-br from-green-500/15 to-emerald-600/15 hover:border-green-500/60 hover:from-green-500/20 hover:to-emerald-600/20'
+                              : 'border-red-500/40 bg-gradient-to-br from-red-500/15 to-rose-600/15 hover:border-red-500/60 hover:from-red-500/20 hover:to-rose-600/20'
                         }`}
-                        onClick={() => onDeviceClick?.(deviceId)}
+                        onClick={async () => {
+                          // Gọi onDeviceClick trước để set selected device (không block UI)
+                          onDeviceClick?.(deviceId);
+                          
+                          // LUÔN gọi detail API khi click vào device (refresh data mới nhất)
+                          // Kiểm tra xem device đang được fetch chưa (tránh duplicate calls)
+                          if (fetchingDeviceRef.current.has(deviceId)) {
+                            return; // Đang fetch rồi, không gọi lại
+                          }
+                          
+                          // Gọi fetchDeviceDetails với deviceId cụ thể
+                          await fetchDeviceDetails(deviceId);
+                        }}
                         style={{ 
-                          width: '280px',
-                          minWidth: '280px', 
-                          maxWidth: '280px',
-                          flexBasis: '280px',
+                          width: '320px',
+                          minWidth: '320px', 
+                          maxWidth: '320px',
+                          flexBasis: '320px',
                           flexShrink: 0,
                           flexGrow: 0,
                           boxShadow: isSelected 
@@ -620,28 +702,52 @@ export function Devices({
                             : '0 4px 16px rgba(0, 0, 0, 0.3)'
                         }}
                       >
-                        <div className="p-4">
-                          <div className="flex items-center justify-between mb-3">
-                            <div className="flex items-center gap-3 flex-1 min-w-0">
-                              <div 
-                                className={`w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0 relative bg-gradient-to-br ${gradient} shadow-lg`}
-                                style={{
-                                  boxShadow: deviceEnabled 
-                                    ? '0 0 20px rgba(74, 222, 128, 0.5), inset 0 0 20px rgba(74, 222, 128, 0.15)'
-                                    : '0 0 15px rgba(34, 211, 238, 0.3), inset 0 0 15px rgba(34, 211, 238, 0.1)',
-                                  opacity: deviceEnabled ? 1 : 0.7
-                                }}
-                              >
-                                <Icon className="w-6 h-6 text-white" style={{ filter: 'drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))' }} />
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-white font-bold text-base truncate mb-0.5" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
+                        <div className="p-5">
+                          {/* Header: Icon + Name + Status */}
+                          <div className="flex items-start gap-3 mb-4">
+                            <div 
+                              className={`w-14 h-14 rounded-xl flex items-center justify-center flex-shrink-0 relative bg-gradient-to-br ${gradient} shadow-lg transition-all duration-300`}
+                              style={{
+                                boxShadow: deviceEnabled 
+                                  ? '0 0 20px rgba(74, 222, 128, 0.5), inset 0 0 20px rgba(74, 222, 128, 0.15)'
+                                  : '0 0 15px rgba(34, 211, 238, 0.3), inset 0 0 15px rgba(34, 211, 238, 0.1)',
+                                opacity: deviceEnabled ? 1 : 0.7
+                              }}
+                            >
+                              <Icon className="w-7 h-7 text-white" style={{ filter: 'drop-shadow(0 0 8px rgba(255, 255, 255, 0.5))' }} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-1.5">
+                                <h4 className="text-white font-bold text-lg truncate flex-1 min-w-0" style={{ textShadow: '0 2px 4px rgba(0,0,0,0.3)' }}>
                                   {device.name}
                                 </h4>
-                                <p className="text-cyan-200/70 text-sm font-medium truncate capitalize">
-                                  {device.type} • {roomName}
-                                </p>
+                                <span className={`flex-shrink-0 w-2.5 h-2.5 rounded-full transition-all duration-200 ${
+                                  deviceStatus === 'online' 
+                                    ? 'bg-green-500 shadow-lg shadow-green-500/50 animate-pulse' 
+                                    : 'bg-red-500 shadow-lg shadow-red-500/50'
+                                }`} 
+                                title={deviceStatus === 'online' ? 'Online' : 'Offline'}
+                                />
                               </div>
+                              <p className="text-cyan-200/70 text-sm font-medium truncate capitalize">
+                                {device.type} • {roomName}
+                              </p>
+                            </div>
+                          </div>
+                          
+                          {/* Stats: Sensors & Actuators + Switch */}
+                          <div className="flex items-center justify-between gap-2 mb-3">
+                            <div className="flex items-center gap-2">
+                              {deviceSensorsCount > 0 && (
+                                <span className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10 transition-all duration-200 hover:bg-white/15">
+                                  <span className="font-semibold text-xs text-cyan-200/90">{deviceSensorsCount} cảm biến</span>
+                                </span>
+                              )}
+                              {deviceActuatorsCount > 0 && (
+                                <span className="flex items-center gap-1.5 bg-white/10 backdrop-blur-sm px-2.5 py-1.5 rounded-lg border border-white/10 transition-all duration-200 hover:bg-white/15">
+                                  <span className="font-semibold text-xs text-cyan-200/90">{deviceActuatorsCount} điều khiển</span>
+                                </span>
+                              )}
                             </div>
                             {onDeviceToggle && (
                               <Switch
@@ -657,54 +763,48 @@ export function Devices({
                             )}
                           </div>
                           
-                          {/* Stats */}
-                          <div className="flex items-center justify-between text-xs text-cyan-200/70 mb-3">
-                            <div className="flex items-center gap-3">
-                              {deviceSensorsCount > 0 && (
-                                <span className="flex items-center gap-1 bg-slate-900/40 px-2 py-1 rounded-md">
-                                  <span className="font-medium">{deviceSensorsCount} cảm biến</span>
-                                </span>
-                              )}
-                              {deviceActuatorsCount > 0 && (
-                                <span className="flex items-center gap-1 bg-slate-900/40 px-2 py-1 rounded-md">
-                                  <span className="font-medium">{deviceActuatorsCount} điều khiển</span>
+                          {/* Footer: Status + Time + Actions */}
+                          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-700/50">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`text-xs font-bold px-2.5 py-1 rounded-md whitespace-nowrap transition-all duration-200 ${
+                                deviceStatus === 'online'
+                                  ? 'bg-green-500/20 text-green-400 border border-green-500/40 shadow-sm shadow-green-500/20'
+                                  : 'bg-red-500/30 text-red-400 border border-red-500/50 shadow-sm shadow-red-500/20'
+                              }`}>
+                                {deviceStatus === 'online' ? 'Online' : 'Offline'}
+                              </span>
+                              {device.last_seen && (
+                                <span className="text-[10px] text-cyan-200/60 whitespace-nowrap px-1.5 py-0.5 rounded bg-cyan-500/10 border border-cyan-500/20" title={`Lần cuối: ${new Date(device.last_seen).toLocaleString('vi-VN')}`}>
+                                  {formatTimeAgo(new Date(device.last_seen))}
                                 </span>
                               )}
                             </div>
-                            <span className={`text-xs font-bold px-2 py-1 rounded-md ${
-                              deviceEnabled 
-                                ? 'bg-green-500/25 text-green-400 border border-green-500/30' 
-                                : 'bg-slate-500/25 text-slate-400 border border-slate-500/30'
-                            }`}>
-                              {deviceEnabled ? 'ON' : 'OFF'}
-                            </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-2">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="flex-1 h-8 text-xs text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 font-semibold rounded-lg"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleEditDevice(deviceId);
-                              }}
-                            >
-                              <Pencil className="w-3.5 h-3.5 mr-1.5" />
-                              Sửa
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-red-400/90 hover:text-red-300 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 transition-all duration-200 rounded-lg"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                handleDeleteDevice(deviceId, device.name);
-                              }}
-                              title="Xóa thiết bị"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </Button>
+                            <div className="flex items-center gap-2">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-cyan-200/90 hover:text-white hover:bg-gradient-to-r hover:from-cyan-500/20 hover:to-blue-600/20 border border-cyan-500/30 hover:border-cyan-400/50 transition-all duration-200 rounded-lg"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleEditDevice(deviceId);
+                                }}
+                                title="Sửa thiết bị"
+                              >
+                                <Pencil className="w-3.5 h-3.5" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 w-7 p-0 text-red-400/90 hover:text-red-300 hover:bg-red-500/20 border border-red-500/30 hover:border-red-400/50 transition-all duration-200 rounded-lg"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleDeleteDevice(deviceId, device.name);
+                                }}
+                                title="Xóa thiết bị"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </Button>
+                            </div>
                           </div>
                         </div>
                       </div>
@@ -716,12 +816,12 @@ export function Devices({
         </div>
 
         {selectedDevice && (
-          <div className="flex-1 flex flex-col lg:flex-row gap-3 overflow-hidden min-h-0" style={{ maxWidth: '100%', overflowX: 'hidden', height: '100%' }}>
-            <div className="flex-shrink-0 lg:w-72 flex flex-col gap-3 overflow-hidden min-h-0">
+          <div className="flex-1 flex flex-col lg:flex-row gap-4 overflow-hidden min-h-0" style={{ maxWidth: '100%', overflowX: 'hidden', height: '100%' }}>
+            <div className="flex-shrink-0 lg:w-[360px] flex flex-col gap-4 overflow-hidden min-h-0">
               {deviceSensorsList.length > 0 && (
-                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
+                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-3 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Cảm biến</h4>
-                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '300px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
+                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1.5" style={{ maxHeight: '300px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
                           {deviceSensorsList.map((sensor) => {
                             const sensorId = sensor._id;
                             const isSelected = selectedSensorId === sensorId;
@@ -736,46 +836,55 @@ export function Devices({
                                 }`}
                                 onClick={() => handleSensorClick(sensorId)}
                               >
-                                <div className="flex items-start justify-between gap-2">
+                                <div className="flex items-start justify-between gap-2.5">
                                   <div className="flex-1 min-w-0">
-                                    <div className="flex items-center gap-1.5 mb-1.5">
-                                      <span className="text-white font-semibold text-xs">
-                                        {sensor.name}
-                                      </span>
-                                      <span className="text-cyan-200/50 text-xs flex-shrink-0">
-                                        ({sensor.type})
-                                      </span>
-                                      {isSelected && (
-                                        <span className="text-cyan-400 text-xs flex-shrink-0">●</span>
+                                    <div className="flex items-center justify-between gap-1.5 mb-1.5">
+                                      <div className="flex items-center gap-1.5 flex-1 min-w-0">
+                                        <span className="text-white font-semibold text-xs">
+                                          {sensor.name}
+                                        </span>
+                                        <span className="text-cyan-200/50 text-[10px] flex-shrink-0">
+                                          ({sensor.type})
+                                        </span>
+                                        {isSelected && (
+                                          <span className="text-cyan-400 text-xs flex-shrink-0">●</span>
+                                        )}
+                                      </div>
+                                      {sensor.lastUpdate && (
+                                        <span className="text-[10px] text-cyan-200/50 flex-shrink-0" title={new Date(sensor.lastUpdate).toLocaleString('vi-VN')}>
+                                          {formatTimeAgo(sensor.lastUpdate)}
+                                        </span>
                                       )}
                                     </div>
                                     
                                     {sensor.value !== undefined ? (
-                                      <div className="flex items-baseline gap-1 mb-1">
-                                        <span className={`font-bold text-lg ${
-                                          (sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
-                                          (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)
-                                            ? 'text-red-400' 
-                                            : 'text-white'
-                                        }`}>
-                                          {sensor.value.toFixed(1)}
-                                        </span>
-                                        <span className="text-cyan-200/70 text-xs">
-                                          {sensor.unit || ''}
-                                        </span>
-                                        {((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
-                                          (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)) && (
-                                          <span className="text-red-400 text-sm ml-1" title="Vượt quá ngưỡng nguy hiểm">
-                                            !
+                                      <div className="mb-1">
+                                        <div className="flex items-baseline gap-1.5">
+                                          <span className={`font-bold text-lg ${
+                                            (sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
+                                            (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)
+                                              ? 'text-red-400' 
+                                              : 'text-white'
+                                          }`}>
+                                            {sensor.value.toFixed(1)}
                                           </span>
-                                        )}
+                                          <span className="text-cyan-200/70 text-xs">
+                                            {sensor.unit || ''}
+                                          </span>
+                                          {((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
+                                            (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)) && (
+                                            <span className="text-red-400 text-sm ml-1" title="Vượt quá ngưỡng nguy hiểm">
+                                              !
+                                            </span>
+                                          )}
+                                        </div>
                                       </div>
                                     ) : (
                                       <div className="text-slate-400 text-xs mb-1">Chưa có dữ liệu</div>
                                     )}
                                     
                                     {(sensor.min_threshold !== undefined || sensor.max_threshold !== undefined) && (
-                                      <div className="text-xs text-cyan-200/60">
+                                      <div className="text-[10px] text-cyan-200/60 leading-tight">
                                         Ngưỡng: {
                                           sensor.min_threshold !== undefined && sensor.max_threshold !== undefined
                                             ? `${sensor.min_threshold} - ${sensor.max_threshold} ${sensor.unit || ''}`
@@ -789,17 +898,19 @@ export function Devices({
                                   
                                   <div className="flex flex-col items-end gap-2 flex-shrink-0">
                                     {onSensorEnableToggle && (
-                                      <Switch
-                                        checked={sensor.enabled}
-                                        onCheckedChange={(checked) => {
-                                          const sensorId = sensor._id;
-                                          if (sensorId) {
-                                            handleSensorToggle(sensorId, checked);
-                                          }
-                                        }}
-                                        onClick={(e) => e.stopPropagation()}
-                                        className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9"
-                                      />
+                                      <div className="[&_[data-slot=switch-thumb]]:h-3 [&_[data-slot=switch-thumb]]:w-3 [&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-4 [&_[data-slot=switch-thumb]]:data-[state=unchecked]:translate-x-0.5">
+                                        <Switch
+                                          checked={sensor.enabled}
+                                          onCheckedChange={(checked) => {
+                                            const sensorId = sensor._id;
+                                            if (sensorId) {
+                                              handleSensorToggle(sensorId, checked);
+                                            }
+                                          }}
+                                          onClick={(e) => e.stopPropagation()}
+                                          className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-4 w-8"
+                                        />
+                                      </div>
                                     )}
                                     <div className="flex gap-1">
                                       <Button
@@ -809,7 +920,7 @@ export function Devices({
                                           e.stopPropagation();
                                           setEditingSensorName(sensor);
                                         }}
-                                        className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                        className="h-7 px-2 text-[10px] text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
                                         title="Chỉnh sửa tên"
                                       >
                                         <Pencil className="h-3 w-3" />
@@ -821,7 +932,7 @@ export function Devices({
                                           e.stopPropagation();
                                           setEditingSensorThreshold(sensor);
                                         }}
-                                        className="h-7 px-2 text-xs text-cyan-200/90 hover:text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                        className="h-7 px-2 text-[10px] text-cyan-200/90 hover:text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
                                         title="Cài đặt ngưỡng cảm biến"
                                       >
                                         <Settings className="h-3.5 w-3.5" />
@@ -837,21 +948,21 @@ export function Devices({
               )}
 
               {deviceActuatorsList.length > 0 && (
-                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-2.5 flex flex-col min-h-0 flex-shrink">
+                <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-3 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Điều khiển</h4>
-                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1" style={{ maxHeight: '140px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
+                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1.5" style={{ maxHeight: '140px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
                           {deviceActuatorsList.map((actuator) => (
                             <div 
                               key={actuator._id} 
                               className="rounded-lg border border-cyan-500/10 bg-white/5 p-2.5 hover:border-cyan-400/30 hover:bg-white/10 transition-all duration-200"
                             >
-                              <div className="flex items-center justify-between">
+                              <div className="flex items-center justify-between gap-2.5">
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-1.5">
                                     <span className="text-white font-semibold text-xs">
                                       {actuator.name}
                                     </span>
-                                    <span className="text-cyan-200/50 text-xs">
+                                    <span className="text-cyan-200/50 text-[10px]">
                                       ({actuator.type})
                                     </span>
                                   </div>
@@ -864,22 +975,24 @@ export function Devices({
                                       e.stopPropagation();
                                       setEditingActuatorName(actuator);
                                     }}
-                                    className="h-7 px-2 text-xs text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                    className="h-7 px-2 text-[10px] text-cyan-200/70 hover:text-cyan-200 hover:bg-cyan-500/20 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
                                     title="Chỉnh sửa tên"
                                   >
                                     <Pencil className="h-3 w-3" />
                                   </Button>
                                   {onActuatorControl && (
-                                    <Switch
-                                      checked={actuator.state}
-                                      onCheckedChange={(checked) => {
-                                        const actuatorId = actuator._id;
-                                        if (actuatorId) {
-                                          handleActuatorToggle(actuatorId, checked);
-                                        }
-                                      }}
-                                      className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-5 w-9 flex-shrink-0"
-                                    />
+                                    <div className="[&_[data-slot=switch-thumb]]:h-3 [&_[data-slot=switch-thumb]]:w-3 [&_[data-slot=switch-thumb]]:data-[state=checked]:translate-x-4 [&_[data-slot=switch-thumb]]:data-[state=unchecked]:translate-x-0.5">
+                                      <Switch
+                                        checked={actuator.state}
+                                        onCheckedChange={(checked) => {
+                                          const actuatorId = actuator._id;
+                                          if (actuatorId) {
+                                            handleActuatorToggle(actuatorId, checked);
+                                          }
+                                        }}
+                                        className="data-[state=checked]:bg-green-500 data-[state=unchecked]:bg-slate-600 h-4 w-8 flex-shrink-0"
+                                      />
+                                    </div>
                                   )}
                                 </div>
                               </div>

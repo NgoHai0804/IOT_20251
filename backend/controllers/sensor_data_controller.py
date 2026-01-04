@@ -3,13 +3,12 @@ from fastapi.responses import JSONResponse
 from utils.database import (
     sensor_data_collection, 
     devices_collection, 
-    user_devices_collection,
     user_room_devices_collection,
     sensors_collection,
     sanitize_for_json
 )
 from datetime import datetime, timedelta
-from utils.timezone import get_vietnam_now_naive
+from utils.timezone import get_vietnam_now_naive, convert_to_vietnam_naive
 from typing import Optional, Dict, List
 from bson import ObjectId
 
@@ -32,35 +31,80 @@ def get_sensor_data(
         # Xây dựng query filter
         query = {}
         
-        # Kiểm tra quyền truy cập device từ bảng user_room_devices
-        if device_id:
+        # Nếu có sensor_id, tìm sensor để lấy device_id và kiểm tra quyền truy cập
+        if sensor_id:
+            sensor_id = str(sensor_id)
+            # Tìm sensor theo sensor_id
+            sensor = sensors_collection.find_one({"_id": sensor_id})
+            if not sensor:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Sensor not found",
+                        "data": {"sensor_data": [], "total": 0}
+                    }
+                )
+            
+            # Lấy device_id từ sensor
+            sensor_device_id = sensor.get("device_id")
+            if not sensor_device_id:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Sensor does not belong to any device",
+                        "data": {"sensor_data": [], "total": 0}
+                    }
+                )
+            
+            # Kiểm tra quyền truy cập device
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": str(sensor_device_id)})
+            if not link:
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Sensor does not belong to any device accessible by this user",
+                        "data": {"sensor_data": [], "total": 0}
+                    }
+                )
+            
+            # Query theo sensor_id (không cần filter device_id vì đã kiểm tra quyền)
+            query["sensor_id"] = sensor_id
+            
+            # Nếu có device_id được truyền vào và khác với device_id của sensor, báo lỗi
+            if device_id and str(device_id) != str(sensor_device_id):
+                return JSONResponse(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    content={
+                        "status": False,
+                        "message": "Device ID does not match the sensor's device",
+                        "data": None
+                    }
+                )
+        
+        # Nếu không có sensor_id, kiểm tra quyền truy cập device
+        elif device_id:
             # Đảm bảo device_id là string
             device_id = str(device_id)
             # Kiểm tra device có thuộc về user không
             link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
-                # Thử legacy table (backward compatible)
-                legacy_link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
-                if not legacy_link:
-                    return JSONResponse(
-                        status_code=status.HTTP_200_OK,
-                        content={
-                            "status": False,
-                            "message": "Device not linked to this user or not found",
-                            "data": None
-                        }
-                    )
+                return JSONResponse(
+                    status_code=status.HTTP_200_OK,
+                    content={
+                        "status": False,
+                        "message": "Device not linked to this user or not found",
+                        "data": None
+                    }
+                )
             query["device_id"] = device_id
         
-        # Nếu không có device_id, lấy tất cả devices của user từ bảng user_room_devices
+        # Nếu không có cả sensor_id và device_id, lấy tất cả devices của user
         else:
             linked_devices = user_room_devices_collection.find({"user_id": user_id})
             device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
-            
-            # Nếu không có, thử legacy table
-            if not device_ids:
-                legacy_links = user_devices_collection.find({"user_id": user_id})
-                device_ids = [link["device_id"] for link in legacy_links]
             
             if not device_ids:
                 return JSONResponse(
@@ -73,10 +117,6 @@ def get_sensor_data(
                 )
             query["device_id"] = {"$in": device_ids}
         
-        # Filter theo sensor_id
-        if sensor_id:
-            query["sensor_id"] = sensor_id
-        
         # Filter theo sensor_type
         if sensor_type:
             query["sensor_type"] = sensor_type
@@ -86,8 +126,11 @@ def get_sensor_data(
             time_query = {}
             if start_time:
                 try:
+                    # Parse UTC time từ frontend
                     start_dt = datetime.fromisoformat(start_time.replace('Z', '+00:00'))
-                    time_query["$gte"] = start_dt
+                    # Chuyển đổi sang giờ Việt Nam (naive) để so sánh với timestamp trong database
+                    start_dt_vietnam = convert_to_vietnam_naive(start_dt)
+                    time_query["$gte"] = start_dt_vietnam
                 except ValueError:
                     return JSONResponse(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -100,8 +143,11 @@ def get_sensor_data(
             
             if end_time:
                 try:
+                    # Parse UTC time từ frontend
                     end_dt = datetime.fromisoformat(end_time.replace('Z', '+00:00'))
-                    time_query["$lte"] = end_dt
+                    # Chuyển đổi sang giờ Việt Nam (naive) để so sánh với timestamp trong database
+                    end_dt_vietnam = convert_to_vietnam_naive(end_dt)
+                    time_query["$lte"] = end_dt_vietnam
                 except ValueError:
                     return JSONResponse(
                         status_code=status.HTTP_400_BAD_REQUEST,
@@ -225,13 +271,6 @@ def get_latest_sensor_data(
             linked_devices = user_room_devices_collection.find({"user_id": user_id})
             device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
             
-            # Nếu không có devices, thử legacy table (backward compatible)
-            if not device_ids:
-                legacy_links = user_devices_collection.find({"user_id": user_id})
-                legacy_device_ids = [link["device_id"] for link in legacy_links]
-                if legacy_device_ids:
-                    device_ids = legacy_device_ids
-            
             if not device_ids:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
@@ -339,7 +378,7 @@ def get_sensor_statistics(
         if device_id:
             # Đảm bảo device_id là string
             device_id = str(device_id)
-            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
@@ -351,8 +390,8 @@ def get_sensor_statistics(
                 )
             query["device_id"] = device_id
         else:
-            linked_devices = user_devices_collection.find({"user_id": user_id})
-            device_ids = [link["device_id"] for link in linked_devices]
+            linked_devices = user_room_devices_collection.find({"user_id": user_id})
+            device_ids = list(set([link["device_id"] for link in linked_devices]))  # Loại bỏ duplicate
             
             if not device_ids:
                 return JSONResponse(
@@ -494,7 +533,7 @@ def get_sensor_trends(
         # Ưu tiên device_id trước, sau đó mới đến room
         if device_id:
             # Chỉ lấy dữ liệu của device này
-            link = user_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
+            link = user_room_devices_collection.find_one({"user_id": user_id, "device_id": device_id})
             if not link:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
@@ -506,17 +545,16 @@ def get_sensor_trends(
                 )
             query["device_id"] = device_id
         elif room:
-            # Lấy tất cả devices trong phòng này
-            # Lấy danh sách devices của user
-            linked_devices = user_devices_collection.find({"user_id": user_id})
-            linked_device_ids = [link["device_id"] for link in linked_devices]
-            
-            if not linked_device_ids:
+            # Lấy tất cả devices trong phòng này từ user_room_devices
+            # Tìm room theo tên
+            from utils.database import rooms_collection
+            room_obj = rooms_collection.find_one({"name": room, "user_id": user_id})
+            if not room_obj:
                 return JSONResponse(
                     status_code=status.HTTP_200_OK,
                     content={
                         "status": True,
-                        "message": "No devices found for this user",
+                        "message": f"Room '{room}' not found",
                         "data": {
                             "temperature": [],
                             "humidity": [],
@@ -525,12 +563,12 @@ def get_sensor_trends(
                     }
                 )
             
-            # Lấy thông tin devices và filter theo location (room)
-            devices_in_room = devices_collection.find({
-                "device_id": {"$in": linked_device_ids},
-                "location": room
+            # Lấy devices trong phòng từ user_room_devices
+            linked_devices = user_room_devices_collection.find({
+                "user_id": user_id,
+                "room_id": room_obj["_id"]
             })
-            device_ids_in_room = [device["device_id"] for device in devices_in_room]
+            device_ids_in_room = [link["device_id"] for link in linked_devices if link.get("device_id")]
             
             if not device_ids_in_room:
                 return JSONResponse(
@@ -549,8 +587,8 @@ def get_sensor_trends(
             query["device_id"] = {"$in": device_ids_in_room}
         else:
             # Lấy tất cả devices của user
-            linked_devices = user_devices_collection.find({"user_id": user_id})
-            device_ids = [link["device_id"] for link in linked_devices]
+            linked_devices = user_room_devices_collection.find({"user_id": user_id})
+            device_ids = list(set([link["device_id"] for link in linked_devices if link.get("device_id")]))  # Loại bỏ duplicate
             
             if not device_ids:
                 return JSONResponse(

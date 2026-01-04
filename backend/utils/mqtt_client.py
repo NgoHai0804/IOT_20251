@@ -8,9 +8,9 @@ MQTT Topics:
 -----------
 Subscribed (nhận từ thiết bị):
 - iot/device/{device_id}/data   - Nhận dữ liệu sensor từ thiết bị (format cũ)
-- iot/device/{device_id}/status  - Nhận trạng thái thiết bị (format cũ)
 - device/{device_id}/sensor/{sensor_id}/data - Nhận dữ liệu sensor từ thiết bị (format mới)
-- device/{device_id}/status - Nhận trạng thái thiết bị (format mới)
+- device/{device_id}/data - Nhận dữ liệu sensor và actuator (format mới chuẩn)
+- device/{device_id}/lwt - Last Will and Testament (phát hiện disconnect ngay lập tức)
 
 Published (gửi đến thiết bị):
 - device/{device_id}/command - Gửi lệnh điều khiển đến thiết bị
@@ -35,11 +35,10 @@ Message Format:
      ]
    }
 
-2. Device Status (iot/device/{device_id}/status hoặc device/{device_id}/status):
+2. Last Will and Testament (device/{device_id}/lwt):
+   Broker tự động publish khi device disconnect bất thường
    {
-     "status": "online",  // hoặc "offline"
-     "battery": 75,  // (tùy chọn) Mức pin
-     "cloud_status": "on"  // (tùy chọn) Trạng thái cloud
+     "status": "offline"
    }
 
 3. Command (device/{device_id}/command) - Gửi từ backend đến thiết bị:
@@ -100,16 +99,35 @@ MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", None)  # Đặt nếu cần xác th�
 # Format mới chuẩn: device/{device_id}/data (gửi sensors và actuators)
 DEVICE_REGISTER_TOPIC = "device/register"  # Pattern: device/register (đăng ký thiết bị)
 DEVICE_DATA_TOPIC_OLD = "iot/device/+/data"  # Pattern: iot/device/{device_id}/data
-DEVICE_STATUS_TOPIC_OLD = "iot/device/+/status"  # Pattern: iot/device/{device_id}/status
 DEVICE_DATA_TOPIC = "device/+/sensor/+/data"  # Pattern: device/{device_id}/sensor/{sensor_id}/data
 DEVICE_DATA_TOPIC_NEW = "device/+/data"  # Pattern: device/{device_id}/data (format mới chuẩn)
-DEVICE_STATUS_TOPIC = "device/+/status"  # Pattern: device/{device_id}/status
+DEVICE_LWT_TOPIC = "device/+/lwt"  # Pattern: device/{device_id}/lwt (Last Will and Testament - phát hiện disconnect ngay lập tức)
 
 
 class MQTTClient:
     def __init__(self):
         self.client = None
         self.is_connected = False
+    
+    def update_device_online_status(self, device_id: str):
+        """Cập nhật trạng thái device thành online và last_seen timestamp"""
+        try:
+            device_id = str(device_id)
+            now = get_vietnam_now_naive()
+            result = devices_collection.update_one(
+                {"_id": device_id},
+                {"$set": {
+                    "status": "online",
+                    "last_seen": now,
+                    "updated_at": now
+                }}
+            )
+            if result.modified_count > 0:
+                logger.debug(f"Đã cập nhật device {device_id} thành online, last_seen={now}")
+        except Exception as e:
+            logger.error(f"Lỗi cập nhật trạng thái online cho device {device_id}: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
         
     def on_connect(self, client, userdata, flags, rc, *args, **kwargs):
         """Callback khi kết nối MQTT broker (tương thích với cả v3.1.1 và v5)"""
@@ -117,27 +135,24 @@ class MQTTClient:
             self.is_connected = True
             logger.info("Đã kết nối đến MQTT broker thành công")
             
-            # Đăng ký các topics (cả format cũ và mới)
+            # Đăng ký các topics
             result_register = client.subscribe(DEVICE_REGISTER_TOPIC, qos=1)
             result_data_old = client.subscribe(DEVICE_DATA_TOPIC_OLD, qos=1)
-            result_status_old = client.subscribe(DEVICE_STATUS_TOPIC_OLD, qos=1)
             result_data = client.subscribe(DEVICE_DATA_TOPIC, qos=1)
             result_data_new = client.subscribe(DEVICE_DATA_TOPIC_NEW, qos=1)
-            result_status = client.subscribe(DEVICE_STATUS_TOPIC, qos=1)
+            result_lwt = client.subscribe(DEVICE_LWT_TOPIC, qos=1)  # Subscribe LWT để phát hiện disconnect ngay lập tức
             
             if (result_register[0] == mqtt.MQTT_ERR_SUCCESS and
-                result_data[0] == mqtt.MQTT_ERR_SUCCESS and 
-                result_status[0] == mqtt.MQTT_ERR_SUCCESS and
+                result_data[0] == mqtt.MQTT_ERR_SUCCESS and
                 result_data_old[0] == mqtt.MQTT_ERR_SUCCESS and
-                result_status_old[0] == mqtt.MQTT_ERR_SUCCESS and
-                result_data_new[0] == mqtt.MQTT_ERR_SUCCESS):
+                result_data_new[0] == mqtt.MQTT_ERR_SUCCESS and
+                result_lwt[0] == mqtt.MQTT_ERR_SUCCESS):
                 logger.info(f"Đã đăng ký các topics:")
                 logger.info(f"   - {DEVICE_REGISTER_TOPIC} (QoS 1) - Đăng ký thiết bị")
                 logger.info(f"   - {DEVICE_DATA_TOPIC_OLD} (QoS 1) - Format cũ")
-                logger.info(f"   - {DEVICE_STATUS_TOPIC_OLD} (QoS 1) - Format cũ")
                 logger.info(f"   - {DEVICE_DATA_TOPIC} (QoS 1) - Format mới")
                 logger.info(f"   - {DEVICE_DATA_TOPIC_NEW} (QoS 1) - Format mới chuẩn")
-                logger.info(f"   - {DEVICE_STATUS_TOPIC} (QoS 1) - Format mới")
+                logger.info(f"   - {DEVICE_LWT_TOPIC} (QoS 1) - Last Will and Testament (phát hiện disconnect ngay lập tức)")
             else:
                 logger.warning(f"Một số đăng ký có thể đã thất bại")
         else:
@@ -187,20 +202,15 @@ class MQTTClient:
                 sensor_id = topic_parts[3]
                 self.handle_sensor_data_new_format(device_id, sensor_id, payload)
             
-            # Format mới: device/{device_id}/status
-            elif len(topic_parts) >= 3 and topic_parts[0] == "device" and topic_parts[2] == "status":
+            # Last Will and Testament: device/{device_id}/lwt (phát hiện disconnect ngay lập tức)
+            elif len(topic_parts) >= 3 and topic_parts[0] == "device" and topic_parts[2] == "lwt":
                 device_id = topic_parts[1]
-                self.handle_device_status(device_id, payload)
+                self.handle_device_lwt(device_id, payload)
             
             # Format cũ: iot/device/{device_id}/data
             elif len(topic_parts) >= 4 and topic_parts[0] == "iot" and topic_parts[1] == "device" and topic_parts[3] == "data":
                 device_id = topic_parts[2]
                 self.handle_sensor_data(device_id, payload)
-            
-            # Format cũ: iot/device/{device_id}/status
-            elif len(topic_parts) >= 4 and topic_parts[0] == "iot" and topic_parts[1] == "device" and topic_parts[3] == "status":
-                device_id = topic_parts[2]
-                self.handle_device_status(device_id, payload)
             
             # Format mới chuẩn: device/{device_id}/data (gửi sensors và actuators)
             elif len(topic_parts) >= 3 and topic_parts[0] == "device" and topic_parts[2] == "data":
@@ -231,11 +241,8 @@ class MQTTClient:
                 logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
                 return
             
-            # Cập nhật trạng thái device thành online
-            devices_collection.update_one(
-                {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
-            )
+            # Cập nhật trạng thái device thành online và last_seen
+            self.update_device_online_status(device_id)
             
             # Format mới: {"value": 25.5, "unit": "°C"}
             # Tạo sensor_data dict với sensor_id từ topic
@@ -269,11 +276,8 @@ class MQTTClient:
                 logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
                 return
             
-            # Cập nhật trạng thái device thành online
-            devices_collection.update_one(
-                {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
-            )
+            # Cập nhật trạng thái device thành online và last_seen
+            self.update_device_online_status(device_id)
             
             # Xử lý dữ liệu sensor
             # Format payload có thể là:
@@ -472,11 +476,8 @@ class MQTTClient:
                 logger.warning(f"Thiết bị {device_id} không tìm thấy trong database")
                 return
             
-            # Cập nhật trạng thái device thành online
-            devices_collection.update_one(
-                {"_id": device_id},
-                {"$set": {"status": "online", "updated_at": get_vietnam_now_naive()}}
-            )
+            # Cập nhật trạng thái device thành online và last_seen
+            self.update_device_online_status(device_id)
             
             # Xử lý sensors
             if "sensors" in data and isinstance(data["sensors"], list):
@@ -670,39 +671,38 @@ class MQTTClient:
         except Exception as e:
             logger.error(f"Lỗi xử lý dữ liệu thiết bị: {str(e)}")
     
-    def handle_device_status(self, device_id: str, payload: str):
-        """Xử lý trạng thái thiết bị"""
+    def handle_device_lwt(self, device_id: str, payload: str):
+        """
+        Xử lý Last Will and Testament message từ MQTT broker
+        Được broker tự động publish khi device disconnect bất thường
+        """
         try:
-            # Đảm bảo device_id là string
             device_id = str(device_id)
-            data = json.loads(payload)
-            status = data.get("status", "offline")
+            # LWT message thường là "offline" hoặc có thể là JSON
+            try:
+                data = json.loads(payload)
+                status = data.get("status", "offline")
+            except:
+                # Nếu không phải JSON, coi như offline
+                status = "offline"
             
-            # Format mới có thể có thêm battery, etc.
-            # Format: {"status": "online", "battery": 75}
-            update_data = {
-                "status": status,
-                "updated_at": get_vietnam_now_naive()
-            }
+            now = get_vietnam_now_naive()
             
-            # Thêm battery nếu có
-            if "battery" in data:
-                update_data["battery"] = data["battery"]
-            
-            # Cập nhật trạng thái device (dùng _id thay vì device_id)
+            # Chuyển device sang offline ngay lập tức
             devices_collection.update_one(
                 {"_id": device_id},
-                {"$set": update_data}
+                {"$set": {
+                    "status": "offline",
+                    "updated_at": now
+                }}
             )
             
-            logger.info(f"Đã cập nhật trạng thái thiết bị {device_id} thành: {status}")
-            if "battery" in data:
-                logger.info(f"   Mức pin: {data['battery']}%")
+            logger.warning(f"⚠️ Device {device_id} đã disconnect (LWT triggered) - chuyển sang offline ngay lập tức")
             
-        except json.JSONDecodeError:
-            logger.error(f"JSON payload không hợp lệ: {payload}")
         except Exception as e:
-            logger.error(f"Lỗi xử lý trạng thái thiết bị: {str(e)}")
+            logger.error(f"Lỗi xử lý LWT message: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def connect(self):
         """Kết nối đến MQTT broker"""
@@ -840,12 +840,14 @@ class MQTTClient:
                 if existing_device:
                     logger.info(f"Thiết bị {device_id} đã tồn tại, đang cập nhật...")
                     # Cập nhật thông tin device (KHÔNG cập nhật room_id)
+                    now = get_vietnam_now_naive()
                     update_data = {
                         "name": data.get("name", existing_device.get("name")),
                         "type": data.get("type", existing_device.get("type")),
                         "ip": data.get("ip", existing_device.get("ip", "")),
                         "status": "online",
-                        "updated_at": get_vietnam_now_naive()
+                        "last_seen": now,
+                        "updated_at": now
                     }
                     devices_collection.update_one({"_id": device_id}, {"$set": update_data})
                 else:
@@ -1012,6 +1014,56 @@ class MQTTClient:
         topic = f"device/{device_id}/command"
         logger.info(f"Đang gửi command đến thiết bị {device_id}: {command}")
         return self.publish(topic, command, qos=qos)
+    
+    def check_and_update_offline_devices(self, timeout_minutes: int = 5):
+        """
+        Kiểm tra và cập nhật trạng thái offline cho các device không gửi message trong khoảng thời gian timeout
+        
+        Args:
+            timeout_minutes: Số phút không nhận được message thì coi như offline (mặc định: 5 phút)
+        """
+        try:
+            now = get_vietnam_now_naive()
+            timeout_threshold = now - timedelta(minutes=timeout_minutes)
+            
+            # Tìm tất cả các device đang online nhưng không có last_seen hoặc last_seen quá cũ
+            offline_devices = devices_collection.find({
+                "status": "online",
+                "$or": [
+                    {"last_seen": {"$exists": False}},
+                    {"last_seen": {"$lt": timeout_threshold}}
+                ]
+            })
+            
+            updated_count = 0
+            for device in offline_devices:
+                device_id = str(device["_id"])
+                last_seen = device.get("last_seen")
+                
+                # Log thông tin debug
+                if last_seen:
+                    time_diff = (now - last_seen).total_seconds() / 60  # phút
+                    logger.debug(f"Device {device_id}: last_seen={last_seen}, time_diff={time_diff:.2f} phút")
+                else:
+                    logger.debug(f"Device {device_id}: không có last_seen")
+                
+                devices_collection.update_one(
+                    {"_id": device_id},
+                    {"$set": {
+                        "status": "offline",
+                        "updated_at": now
+                    }}
+                )
+                updated_count += 1
+                logger.info(f"Đã chuyển device {device_id} sang offline (không nhận message trong {timeout_minutes} phút)")
+            
+            if updated_count > 0:
+                logger.info(f"Đã cập nhật {updated_count} device sang offline")
+            
+        except Exception as e:
+            logger.error(f"Lỗi kiểm tra và cập nhật trạng thái offline: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
 
 
 # Global MQTT client instance

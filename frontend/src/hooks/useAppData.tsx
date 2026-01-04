@@ -364,6 +364,85 @@ export function useAppData(): AppContextType {
     return () => clearInterval(interval);
   }, [isOnDevicesPage, isOnRoomsPage]); // Thêm dependencies để re-run khi chuyển trang
 
+  // Lắng nghe event device-updated để cập nhật devices list
+  useEffect(() => {
+    const handleDeviceUpdated = (event: CustomEvent) => {
+      const eventType = event.type || '';
+      const deviceId = eventType.replace('device-updated-', '');
+      const updatedDevice = event.detail?.device;
+      
+      if (updatedDevice && deviceId) {
+        console.log('Device updated event received:', deviceId, updatedDevice);
+        
+        // Cập nhật device trong list với status, enabled, last_seen
+        setDevices(prevDevices => {
+          const updated = prevDevices.map(device => {
+            if ((device._id || device.id) === deviceId) {
+              // Cập nhật tất cả các trường từ updatedDevice
+              const updatedDeviceData = {
+                ...device,
+                status: updatedDevice.status !== undefined ? updatedDevice.status : device.status,
+                enabled: updatedDevice.enabled !== undefined ? updatedDevice.enabled : device.enabled,
+                last_seen: updatedDevice.last_seen !== undefined ? updatedDevice.last_seen : device.last_seen,
+              };
+              console.log('Updating device:', deviceId, 'from', device.status, 'to', updatedDeviceData.status);
+              return updatedDeviceData;
+            }
+            return device;
+          });
+          return updated;
+        });
+        
+        // Cập nhật sensors nếu có
+        if (updatedDevice.sensors && Array.isArray(updatedDevice.sensors)) {
+          setSensors(prevSensors => {
+            // Xóa sensors cũ của device này
+            const filteredSensors = prevSensors.filter(s => s.device_id !== deviceId);
+            // Thêm sensors mới với device_id
+            const newSensors = updatedDevice.sensors.map((s: any) => ({
+              ...s,
+              device_id: deviceId
+            }));
+            return [...filteredSensors, ...newSensors];
+          });
+        }
+        
+        // Cập nhật actuators nếu có
+        if (updatedDevice.actuators && Array.isArray(updatedDevice.actuators)) {
+          setActuators(prevActuators => {
+            // Xóa actuators cũ của device này
+            const filteredActuators = prevActuators.filter(a => a.device_id !== deviceId);
+            // Thêm actuators mới với device_id
+            const newActuators = updatedDevice.actuators.map((a: any) => ({
+              ...a,
+              device_id: deviceId
+            }));
+            return [...filteredActuators, ...newActuators];
+          });
+        }
+      }
+    };
+    
+    // Intercept window.dispatchEvent để bắt các events device-updated-*
+    const originalDispatchEvent = window.dispatchEvent.bind(window);
+    (window as any).__originalDispatchEvent = originalDispatchEvent;
+    
+    window.dispatchEvent = function(event: Event) {
+      const result = originalDispatchEvent(event);
+      // Nếu là device-updated event, xử lý ngay
+      if ((event as any).type && (event as any).type.startsWith('device-updated-')) {
+        handleDeviceUpdated(event as CustomEvent);
+      }
+      return result;
+    };
+    
+    return () => {
+      if ((window as any).__originalDispatchEvent) {
+        window.dispatchEvent = (window as any).__originalDispatchEvent;
+      }
+    };
+  }, []);
+
   // Lấy sensors và actuators khi thiết bị thay đổi (chỉ khi device IDs thay đổi, không phải khi enabled thay đổi)
   const deviceIdsRef = useRef<string>('');
   const hasInitializedRef = useRef(false);
