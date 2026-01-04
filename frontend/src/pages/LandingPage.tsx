@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Logo } from '@/components/Logo';
 import { authAPI } from '@/services/api';
 import { toast } from 'sonner';
 
@@ -71,49 +72,49 @@ export function LandingPage() {
   const features = [
     {
       icon: Home,
-      title: 'Smart Control',
-      description: 'Control all your IoT devices from one unified dashboard',
+      title: 'Điều Khiển Thông Minh',
+      description: 'Điều khiển tất cả thiết bị từ một bảng điều khiển',
       gradient: 'from-blue-500 to-cyan-500',
     },
     {
       icon: Shield,
-      title: 'Secure & Safe',
-      description: 'Advanced security protocols to keep your home protected',
+      title: 'Bảo Mật & An Toàn',
+      description: 'Giao thức bảo mật tiên tiến bảo vệ ngôi nhà',
       gradient: 'from-purple-500 to-pink-500',
     },
     {
       icon: Zap,
-      title: 'Energy Efficient',
-      description: 'Monitor and optimize your energy consumption in real-time',
+      title: 'Tiết Kiệm Năng Lượng',
+      description: 'Giám sát và tối ưu tiêu thụ năng lượng theo thời gian thực',
       gradient: 'from-yellow-500 to-orange-500',
     },
     {
       icon: Smartphone,
-      title: 'Mobile Ready',
-      description: 'Access your smart home anywhere, anytime from any device',
+      title: 'Sẵn Sàng Di Động',
+      description: 'Truy cập mọi lúc, mọi nơi từ bất kỳ thiết bị nào',
       gradient: 'from-green-500 to-emerald-500',
     },
     {
       icon: TrendingUp,
-      title: 'Smart Analytics',
-      description: 'Get insights and trends about your home automation',
+      title: 'Phân Tích Thông Minh',
+      description: 'Thông tin chi tiết và xu hướng tự động hóa',
       gradient: 'from-indigo-500 to-blue-500',
     },
     {
       icon: Users,
-      title: 'Multi-User',
-      description: 'Share access with family members with custom permissions',
+      title: 'Đa Người Dùng',
+      description: 'Chia sẻ quyền truy cập với quyền tùy chỉnh',
       gradient: 'from-red-500 to-pink-500',
     },
   ];
 
   const benefits = [
-    'Real-time sensor monitoring',
-    'Automated device scheduling',
-    'Energy usage tracking',
-    'Custom notifications & alerts',
-    'Room-based organization',
-    'Historical data analytics',
+    'Giám sát cảm biến theo thời gian thực',
+    'Lập lịch tự động cho thiết bị',
+    'Theo dõi mức sử dụng năng lượng',
+    'Thông báo & cảnh báo tùy chỉnh',
+    'Tổ chức theo phòng',
+    'Phân tích dữ liệu lịch sử',
   ];
 
   return (
@@ -135,15 +136,8 @@ export function LandingPage() {
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ duration: 0.5 }}
-                className="flex items-center gap-3"
               >
-                <div className="w-10 h-10 bg-gradient-to-br from-blue-600 to-cyan-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-500/50">
-                  <Home className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <span className="text-white text-xl">SmartHome</span>
-                  <p className="text-slate-400 text-xs">Management System</p>
-                </div>
+                <Logo size="sm" showText={true} />
               </motion.div>
 
               <motion.div
@@ -180,7 +174,7 @@ export function LandingPage() {
               >
                 <div className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/10 border border-blue-500/30 rounded-full mb-6">
                   <Zap className="w-4 h-4 text-blue-400" />
-                  <span className="text-blue-400 text-sm">Next-Gen Home Automation</span>
+                  <span className="text-blue-400 text-sm">Nhà Thông Minh Thế Hệ Mới</span>
                 </div>
               </motion.div>
 
@@ -190,10 +184,10 @@ export function LandingPage() {
                 transition={{ duration: 0.6, delay: 0.1 }}
                 className="text-white text-4xl md:text-5xl lg:text-6xl mb-6"
               >
-                Welcome to Your
+                Chào Mừng Đến
                 <br />
                 <span className="bg-gradient-to-r from-blue-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent">
-                  Smart Home Hub
+                  Trung Tâm Nhà Thông Minh
                 </span>
               </motion.h1>
 
@@ -203,8 +197,7 @@ export function LandingPage() {
                 transition={{ duration: 0.6, delay: 0.2 }}
                 className="text-slate-400 text-lg md:text-xl mb-10 max-w-2xl mx-auto"
               >
-                Monitor and control all your IoT devices in real-time. Track sensors, automate tasks,
-                and optimize your home's energy efficiency from a single, beautiful dashboard.
+                Giám sát và điều khiển thiết bị IoT theo thời gian thực. Tự động hóa và tối ưu năng lượng từ một bảng điều khiển duy nhất.
               </motion.p>
 
               <motion.div
@@ -236,10 +229,10 @@ export function LandingPage() {
           className="text-center mb-16"
         >
           <h2 className="text-white text-3xl md:text-4xl mb-4">
-            Powerful Features
+            Tính Năng Mạnh Mẽ
           </h2>
           <p className="text-slate-400 text-lg max-w-2xl mx-auto">
-            Everything you need to build a smarter, more efficient home
+            Mọi thứ bạn cần cho ngôi nhà thông minh và hiệu quả
           </p>
         </motion.div>
 
@@ -280,18 +273,17 @@ export function LandingPage() {
               transition={{ duration: 0.6 }}
             >
               <h2 className="text-white text-3xl md:text-4xl mb-6">
-                Why Choose SmartHome?
+                Tại Sao Chọn SmartHome?
               </h2>
               <p className="text-slate-400 text-lg mb-8">
-                Our platform provides everything you need to transform your house into a modern,
-                intelligent home that adapts to your lifestyle.
+                Nền tảng cung cấp mọi thứ cần thiết để biến ngôi nhà thành không gian thông minh, hiện đại phù hợp với lối sống của bạn.
               </p>
               <Link to="/dashboard">
                 <Button
                   size="lg"
                   className="bg-gradient-to-r from-blue-600 to-cyan-600 hover:from-blue-700 hover:to-cyan-700 text-white shadow-lg shadow-blue-500/50 transition-all duration-200"
                 >
-                  Start Managing Your Home
+                  Bắt Đầu Quản Lý
                 </Button>
               </Link>
             </motion.div>
@@ -335,17 +327,17 @@ export function LandingPage() {
           <div className="absolute inset-0 bg-grid-white/10" />
           <div className="relative">
             <h2 className="text-white text-3xl md:text-4xl mb-4">
-              Ready to Get Started?
+              Sẵn Sàng Bắt Đầu?
             </h2>
             <p className="text-blue-100 text-lg mb-8 max-w-2xl mx-auto">
-              Join thousands of users who are already enjoying a smarter home experience
+              Tham gia cùng hàng nghìn người dùng đang tận hưởng nhà thông minh
             </p>
             <Link to="/login">
               <Button
                 size="lg"
                 className="bg-white text-blue-600 hover:bg-blue-50 shadow-xl transition-all duration-200"
               >
-                Login to Dashboard
+                Đăng Nhập
               </Button>
             </Link>
           </div>

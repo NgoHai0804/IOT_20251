@@ -4,6 +4,7 @@ import { Home, LayoutDashboard, Lightbulb, Bell, BarChart3, LogOut, Menu, X, Use
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { NavLink, useLocation } from 'react-router-dom';
+import { Logo } from './Logo';
 import type { DashboardLayoutProps } from '@/types';
 
 const navItems = [
@@ -40,15 +41,7 @@ export function DashboardLayout({
         <div className="flex flex-col h-full">
           {/* Logo */}
           <div className="p-6 border-b border-slate-800/80">
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-br from-cyan-500 to-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-cyan-500/30">
-                <Home className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h1 className="text-white font-bold text-lg">Smart Home</h1>
-                <p className="text-cyan-200/70 text-xs font-medium">Control Center</p>
-              </div>
-            </div>
+            <Logo size="md" showText={true} />
           </div>
 
           {/* Navigation */}
