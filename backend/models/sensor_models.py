@@ -1,4 +1,3 @@
-# sensor_models.py
 from datetime import datetime
 import uuid
 from utils.timezone import get_vietnam_now_naive
@@ -10,11 +9,12 @@ def get_default_thresholds(sensor_type: str) -> tuple[float | None, float | None
     Returns: (min_threshold, max_threshold)
     """
     defaults = {
-        "temperature": (10.0, 40.0),  # Nhiệt độ: 10-40°C
-        "humidity": (30.0, 80.0),      # Độ ẩm: 30-80%
-        "gas": (None, 100.0),          # Khí gas: dưới 100 ppm
-        "light": (None, 1000.0),       # Ánh sáng: dưới 1000 lux
-        "motion": (None, None),        # Motion: không có ngưỡng
+        "temperature": (10.0, 40.0),
+        "humidity": (30.0, 80.0),
+        "gas": (None, 100.0),
+        "light": (None, 1000.0),
+        "motion": (None, None),
+        "obstacle": (None, None),
     }
     return defaults.get(sensor_type.lower(), (None, None))
 
@@ -30,6 +30,7 @@ def get_default_unit(sensor_type: str) -> str:
         "gas": "ppm",
         "light": "lux",
         "motion": "",
+        "obstacle": "",
     }
     return units.get(sensor_type.lower(), "")
 
@@ -44,7 +45,8 @@ def get_default_name(sensor_type: str) -> str:
         "humidity": "Độ ẩm",
         "gas": "Khí gas",
         "light": "Ánh sáng",
-        "motion": "Cảm biến chuyển động",
+        "motion": "Chuyển động",
+        "obstacle": "Vật cản",
     }
     return names.get(sensor_type.lower(), sensor_type)
 
@@ -65,9 +67,9 @@ def create_sensor_dict(device_id: str, sensor_type: str, name: str, unit: str = 
     }
     """
     sensor_dict = {
-        "_id": f"sensor_{str(uuid.uuid4())[:8]}",  # sensor_01, sensor_02...
+        "_id": f"sensor_{str(uuid.uuid4())[:8]}",
         "device_id": device_id,
-        "type": sensor_type,  # temperature, humidity, gas, light, motion
+        "type": sensor_type,
         "name": name,
         "unit": unit,
         "pin": pin,
@@ -76,7 +78,6 @@ def create_sensor_dict(device_id: str, sensor_type: str, name: str, unit: str = 
         "updated_at": get_vietnam_now_naive()
     }
     
-    # Tự động set ngưỡng mặc định nếu chưa có và auto_set_threshold = True
     if auto_set_threshold and min_threshold is None and max_threshold is None:
         default_min, default_max = get_default_thresholds(sensor_type)
         if default_min is not None:
@@ -84,7 +85,6 @@ def create_sensor_dict(device_id: str, sensor_type: str, name: str, unit: str = 
         if default_max is not None:
             sensor_dict["max_threshold"] = default_max
     else:
-        # Sử dụng giá trị được truyền vào
         if min_threshold is not None:
             sensor_dict["min_threshold"] = min_threshold
         if max_threshold is not None:

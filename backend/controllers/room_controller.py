@@ -87,11 +87,10 @@ def add_device_to_room(user_data: dict, room_id: str, device_id: str):
                 {"user_id": user_id, "device_id": device_id},
                 {"$set": {"room_id": room_id, "updated_at": get_vietnam_now_naive()}}
             )
-            logger.info(f"Đã chuyển thiết bị {device_id} vào phòng {room_id} cho user {user_id}")
+            pass
         else:
             link = create_user_room_device_dict(user_id, device_id, room_id)
             user_room_devices_collection.insert_one(link)
-            logger.info(f"Đã thêm thiết bị {device_id} vào phòng {room_id} cho user {user_id}")
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -168,7 +167,6 @@ def remove_device_from_room(user_data: dict, room_id: str, device_id: str):
         
         # Không cần cập nhật room.device_ids nữa - chỉ sử dụng bảng user_room_devices
         
-        logger.info(f"Đã xóa thiết bị {device_id} khỏi phòng {room_id} cho user {user_id}")
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -541,7 +539,6 @@ def control_room(room_id: str, action: str, user_id: str = None):
             }
             
             mqtt_client.publish_command(device_id, command, qos=1)
-            logger.info(f" Room {room_id} control: device {device_id} set to {enabled}")
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -870,7 +867,6 @@ def delete_room(user_data: dict, room_name: str = None, room_id: str = None):
                 {"user_id": user_id, "room_id": room_id_to_delete},
                 {"$set": {"room_id": None, "updated_at": get_vietnam_now_naive()}}
             )
-            logger.info(f"Phòng {room_id_to_delete} chứa {len(device_ids_in_room)} thiết bị (đã xóa khỏi phòng)")
         
         # Xóa room
         rooms_collection.delete_one({"_id": room_id_to_delete})

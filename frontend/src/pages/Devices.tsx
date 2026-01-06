@@ -981,7 +981,7 @@ export function Devices({
               {deviceActuatorsList.length > 0 && (
                 <div className="rounded-2xl backdrop-blur-xl border border-cyan-500/20 bg-white/5 p-3 flex flex-col min-h-0 flex-shrink">
                   <h4 className="text-white text-sm font-bold mb-2 flex-shrink-0">Điều khiển</h4>
-                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1.5" style={{ maxHeight: '140px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
+                  <div className="space-y-1.5 overflow-y-auto overflow-x-hidden pr-1.5" style={{ maxHeight: '150px', maxWidth: '100%', scrollbarWidth: 'thin', scrollbarColor: 'rgba(6, 182, 212, 0.9) rgba(15, 23, 42, 0.5)' }}>
                           {deviceActuatorsList.map((actuator) => (
                             <div 
                               key={actuator._id} 

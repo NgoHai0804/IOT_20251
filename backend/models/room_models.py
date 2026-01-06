@@ -1,4 +1,3 @@
-# room_models.py
 from datetime import datetime
 import uuid
 from utils.timezone import get_vietnam_now_naive
@@ -16,7 +15,7 @@ def create_room_dict(name: str, description: str = "", user_id: str = None) -> d
     Note: device_ids đã bị bỏ, sử dụng bảng user_room_devices để quản lý mối liên kết
     """
     room_dict = {
-        "_id": f"room_{str(uuid.uuid4())[:8]}",  # room_01, room_02...
+        "_id": f"room_{str(uuid.uuid4())[:8]}",
         "name": name,
         "description": description,
         "created_at": get_vietnam_now_naive(),

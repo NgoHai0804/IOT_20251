@@ -1,4 +1,3 @@
-# actuator_models.py
 from datetime import datetime
 import uuid
 from utils.timezone import get_vietnam_now_naive
@@ -18,9 +17,9 @@ def create_actuator_dict(device_id: str, actuator_type: str, name: str, pin: int
     }
     """
     return {
-        "_id": f"act_{str(uuid.uuid4())[:8]}",  # act_01, act_02...
+        "_id": f"act_{str(uuid.uuid4())[:8]}",
         "device_id": device_id,
-        "type": actuator_type,  # relay, motor, led, etc.
+        "type": actuator_type,
         "name": name,
         "pin": pin,
         "state": state,

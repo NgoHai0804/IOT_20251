@@ -3,21 +3,18 @@ from typing import Any, Optional
 import uuid
 
 
-# ======= Response chung =======
 class ResponseSchema(BaseModel):
     status: bool
     message: str
     data: Optional[Any] = None
 
 
-# ======= Thông tin cơ bản user =======
 class UserBase(BaseModel):
     full_name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
 
 
-# ======= Update Device =======
 class UpdateDevice(BaseModel):
     """
     Schema để cập nhật thông tin thiết bị
@@ -38,7 +35,6 @@ class UpdateDevice(BaseModel):
     cloud_status: Optional[str] = Field(None, description="Cloud status (on/off) - control from server")
 
 
-# ======= Add Device =======
 class AddDevice(BaseModel):
     """
     Schema để thêm thiết bị cho người dùng
@@ -55,6 +51,5 @@ class AddDevice(BaseModel):
     note: Optional[str] = Field(None, description="Device note - optional")
 
 
-# ======= Device cơ bản =======
 class Device(BaseModel):
     device_id: str

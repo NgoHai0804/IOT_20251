@@ -9,7 +9,7 @@ def create_sensor_data_dict(sensor_id: str, value: float, timestamp: datetime = 
     {
       "sensor_data_id": "uuid",
       "sensor_id": "sensor_01",
-      "device_id": "device_01",  # Thêm để query dễ dàng hơn
+      "device_id": "device_01",
       "value": 30,
       "timestamp": "2025-12-21T09:30:00Z"
     }

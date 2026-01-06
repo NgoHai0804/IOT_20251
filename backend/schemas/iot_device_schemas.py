@@ -2,14 +2,12 @@ from pydantic import BaseModel, Field
 from typing import Any, Optional
 
 
-# ======= Response chung =======
 class ResponseSchema(BaseModel):
     status: bool
     message: str
     data: Optional[Any] = None
 
 
-# ======= Register Device (cho IoT device) =======
 class IoTRegisterDevice(BaseModel):
     """
     Schema để thiết bị IoT đăng ký với server
@@ -28,7 +26,6 @@ class IoTRegisterDevice(BaseModel):
     note: Optional[str] = Field(None, description="Device note - optional")
 
 
-# ======= Add Sensor (cho IoT device) =======
 class IoTAddSensor(BaseModel):
     """
     Schema để thiết bị IoT thêm sensor
@@ -43,6 +40,5 @@ class IoTAddSensor(BaseModel):
     note: Optional[str] = Field(None, description="Sensor note - optional")
 
 
-# ======= Device ID =======
 class DeviceID(BaseModel):
     device_id: str = Field(..., description="Device ID")

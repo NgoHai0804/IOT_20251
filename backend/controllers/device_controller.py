@@ -72,7 +72,6 @@ def control_device_power(device_id: str, enabled: bool, user_id: str = None):
             command["actuators"][actuator["_id"]] = actuator.get("enabled", True) if enabled else False
         
         mqtt_client.publish_command(device_id, command, qos=1)
-        logger.info(f"Thiết bị {device_id} power được đặt thành: {enabled}")
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,

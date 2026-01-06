@@ -101,9 +101,9 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
             room = rooms_collection.find_one({"name": location.strip(), "user_id": user_id})
             if room:
                 room_id = room["_id"]
-                logger.info(f"Đã tìm thấy phòng: {location} (room_id: {room_id})")
+                pass
             else:
-                logger.info(f"Không tìm thấy phòng '{location}' cho user {user_id}, thiết bị sẽ được thêm mà không có phòng")
+                pass
         
         # LƯU Ý: Chỉ tạo liên kết trong bảng user_room_devices, KHÔNG cập nhật bảng devices
         # Kiểm tra xem device đã được liên kết với user này chưa
@@ -116,15 +116,12 @@ def add_device(user_data: dict, device_id: str, device_password: str = None, dev
                     {"user_id": user_id, "device_id": device_id},
                     {"$set": {"room_id": room_id, "updated_at": get_vietnam_now_naive()}}
                 )
-                logger.info(f"Đã cập nhật liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
+                pass
             else:
-                logger.info(f"Device {device_id} đã được liên kết với user {user_id}")
+                pass
         else:
-            # Tạo liên kết mới với room_id (có thể là None nếu không có location)
-            # LƯU Ý: Chỉ tạo liên kết, KHÔNG tạo thiết bị mới trong bảng devices
             user_room_device = create_user_room_device_dict(user_id, device_id, room_id=room_id)
             user_room_devices_collection.insert_one(user_room_device)
-            logger.info(f"Đã tạo liên kết user-room-device: user={user_id}, device={device_id}, room_id={room_id}")
 
         response_data = {
             "device_id": device_id,
@@ -448,9 +445,7 @@ def update_device(user_data: dict, id_device: str, update_data: dict):
                     "cloud_status": new_cloud_status
                 }
                 mqtt_success = mqtt_client.publish_command(id_device, command, qos=1)
-                if mqtt_success:
-                    logger.info(f"Đã gửi command đến thiết bị {id_device} qua MQTT: {command}")
-                else:
+                if not mqtt_success:
                     logger.warning(f"Gửi command đến thiết bị {id_device} qua MQTT thất bại")
             except Exception as e:
                 logger.error(f"Lỗi gửi command qua MQTT: {str(e)}")

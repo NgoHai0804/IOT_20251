@@ -51,7 +51,6 @@ async def control_room_route(room_id: str, payload: RoomControl, current_user: d
     return room_controller.control_room(room_id, payload.action, user_id)
 
 
-# Legacy routes (giữ lại để tương thích)
 @router.post("/update-name", response_model=ResponseSchema)
 async def update_room_name_route(payload: UpdateRoomName, current_user: dict = Depends(get_current_user)):
     """

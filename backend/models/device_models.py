@@ -1,4 +1,3 @@
-# device_models.py
 import uuid
 from datetime import datetime
 from utils.timezone import get_vietnam_now_naive
@@ -23,7 +22,7 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
     - _id: ID của thiết bị (device tự tạo và gửi lên)
     """
     device_dict = {
-        "_id": f"device_{str(uuid.uuid4())[:8]}",  # device_01, device_02... (sẽ được ghi đè bằng device_id từ device)
+        "_id": f"device_{str(uuid.uuid4())[:8]}",
         "name": name,
         "type": device_type,
         "status": status,
@@ -33,16 +32,13 @@ def create_device_dict(name: str, room_id: str = None, device_type: str = "esp32
         "updated_at": get_vietnam_now_naive()
     }
     
-    # Thêm device_password nếu có
     if device_password:
         device_dict["device_password"] = device_password
     
-    # Thêm location và note nếu có (backward compatible)
     if location:
         device_dict["location"] = location
     if note:
         device_dict["note"] = note
     
-    # room_id và user_id không còn được sử dụng
     return device_dict
 
