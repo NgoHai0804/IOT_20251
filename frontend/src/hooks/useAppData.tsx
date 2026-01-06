@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
 import type { Room, Device, Sensor, Actuator, Notification } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 import { roomAPI, deviceAPI, newDeviceAPI, newSensorAPI, newActuatorAPI, sensorDataAPI, notificationAPI } from '@/services/api';
 
 interface AppState {
@@ -208,10 +209,10 @@ export function useAppData(): AppContextType {
         });
         
         // Kiểm tra và thông báo nếu vượt quá ngưỡng (sau khi update state)
-        // Chỉ thông báo khi giá trị mới vượt ngưỡng và sensor enabled
+        // Chỉ thông báo khi giá trị mới vượt ngưỡng và sensor enabled và sensor hỗ trợ threshold
         updatedSensors.forEach(updatedSensor => {
           const latestData = sensorValueMap.get(updatedSensor._id || updatedSensor.id);
-          if (latestData && updatedSensor.enabled !== false) {
+          if (latestData && updatedSensor.enabled !== false && sensorSupportsThreshold(updatedSensor.type)) {
             // Kiểm tra nếu vượt ngưỡng
             const isOverThreshold = 
               (updatedSensor.min_threshold !== undefined && latestData.value < updatedSensor.min_threshold) ||

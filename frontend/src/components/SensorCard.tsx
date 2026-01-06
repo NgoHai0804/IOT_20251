@@ -1,14 +1,16 @@
 import { motion } from 'motion/react';
-import { Thermometer, Droplets, Sun, Activity, Zap } from 'lucide-react';
+import { Thermometer, Droplets, Sun, Activity, Zap, AlertTriangle } from 'lucide-react';
 import type { LucideProps } from 'lucide-react';
 import { Card, CardContent } from './ui/card';
 import type { Sensor } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 
 const iconMap: Record<string, React.ComponentType<LucideProps>> = {
   temperature: Thermometer,
   humidity: Droplets,
   light: Sun,
   motion: Activity,
+  obstacle: AlertTriangle,
   energy: Zap,
 };
 
@@ -17,6 +19,7 @@ const colorMap: Record<string, string> = {
   humidity: 'from-blue-500 to-cyan-500',
   light: 'from-yellow-500 to-amber-500',
   motion: 'from-purple-500 to-pink-500',
+  obstacle: 'from-red-500 to-orange-500',
   energy: 'from-green-500 to-emerald-500',
 };
 
@@ -42,9 +45,10 @@ export function SensorCard({ name, type, value, unit, room, lastUpdate, trend, m
   const displayUnit = unit || '';
   const displayRoom = room || 'Unknown';
   
-  // Kiểm tra vượt ngưỡng
-  const isOverThreshold = (min_threshold !== undefined && displayValue < min_threshold) ||
-                          (max_threshold !== undefined && displayValue > max_threshold);
+  // Kiểm tra vượt ngưỡng (chỉ cho sensor hỗ trợ threshold)
+  const isOverThreshold = sensorSupportsThreshold(type) &&
+                          ((min_threshold !== undefined && displayValue < min_threshold) ||
+                          (max_threshold !== undefined && displayValue > max_threshold));
 
   return (
     <motion.div
@@ -83,7 +87,9 @@ export function SensorCard({ name, type, value, unit, room, lastUpdate, trend, m
               </div>
               <div className="flex items-baseline gap-1.5 mb-1.5">
                 <span className={`text-2xl font-bold ${isOverThreshold ? 'text-red-400' : 'text-white'}`}>
-                  {displayValue.toFixed(1)}
+                  {(type === 'motion' || type === 'obstacle') 
+                    ? Math.round(displayValue) 
+                    : displayValue.toFixed(1)}
                 </span>
                 <span className="text-cyan-200/70 text-xs font-medium">{displayUnit}</span>
                 {isOverThreshold && (
@@ -92,8 +98,8 @@ export function SensorCard({ name, type, value, unit, room, lastUpdate, trend, m
                   </span>
                 )}
               </div>
-              {/* Hiển thị ngưỡng nếu có */}
-              {(min_threshold !== undefined || max_threshold !== undefined) && (
+              {/* Hiển thị ngưỡng nếu có (chỉ cho sensor hỗ trợ threshold) */}
+              {sensorSupportsThreshold(type) && (min_threshold !== undefined || max_threshold !== undefined) && (
                 <div className={`text-[10px] font-medium mb-1.5 px-2 py-0.5 rounded ${
                   isOverThreshold 
                     ? 'text-red-300 bg-red-500/10 border border-red-500/20' 

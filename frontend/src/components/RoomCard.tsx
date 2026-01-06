@@ -2,6 +2,7 @@ import { useMemo, useState, useEffect, useRef, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
 import React from 'react';
 import type { Room, Device, Sensor, Actuator } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 import { Button } from './ui/button';
 import { Home, ChevronRight, Wrench, Pencil, Trash2 } from 'lucide-react';
 import {
@@ -434,7 +435,7 @@ const RoomCardComponent = function RoomCard({
                 const hasValue = sensor.value !== undefined && sensor.value !== null;
                 const sensorValue = hasValue ? sensor.value : null;
                 const sensorUnit = sensor.unit || '';
-                const isOverThreshold = hasValue && (
+                const isOverThreshold = hasValue && sensorSupportsThreshold(sensor.type) && (
                   (sensor.min_threshold !== undefined && sensorValue! < sensor.min_threshold) ||
                   (sensor.max_threshold !== undefined && sensorValue! > sensor.max_threshold)
                 );
@@ -498,7 +499,11 @@ const RoomCardComponent = function RoomCard({
                     {/* Giá trị và đơn vị */}
                     <div className="flex items-baseline gap-1.5">
                       <span className={`text-xl font-bold ${isOverThreshold ? 'text-red-400' : hasValue ? 'text-white' : 'text-slate-400'}`}>
-                        {hasValue ? sensorValue!.toFixed(1) : 'N/A'}
+                        {hasValue 
+                          ? (sensor.type === 'motion' || sensor.type === 'obstacle')
+                            ? Math.round(sensorValue!)
+                            : sensorValue!.toFixed(1)
+                          : 'N/A'}
                       </span>
                       {hasValue && <span className="text-cyan-200/70 text-sm">{sensorUnit}</span>}
                     </div>

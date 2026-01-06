@@ -2,6 +2,9 @@
 
 Tài liệu này mô tả chi tiết cách thiết bị IoT (ESP32, Arduino, v.v.) giao tiếp với hệ thống qua MQTT.
 
+**Phiên bản:** 2.0  
+**Cập nhật:** Hỗ trợ sensor binary (PIR motion, IR obstacle)
+
 ---
 
 ## 1. Thông tin Server và MQTT Broker
@@ -79,6 +82,16 @@ Tài liệu này mô tả chi tiết cách thiết bị IoT (ESP32, Arduino, v.v
       "sensor_id": "sensor_03",
       "type": "gas",
       "pin": 34
+    },
+    {
+      "sensor_id": "sensor_04",
+      "type": "motion",
+      "pin": 27
+    },
+    {
+      "sensor_id": "sensor_05",
+      "type": "obstacle",
+      "pin": 33
     }
   ],
   "actuators": [
@@ -102,20 +115,26 @@ Tài liệu này mô tả chi tiết cách thiết bị IoT (ESP32, Arduino, v.v
 - Chỉ cần gửi `type` cho sensors, server sẽ tự động:
   - Set `unit` (ví dụ: "°C" cho temperature, "%" cho humidity)
   - Set `name` (ví dụ: "Nhiệt độ" cho temperature, "Độ ẩm" cho humidity)
-  - Set `threshold` (ví dụ: (10.0, 40.0) cho temperature, (30.0, 80.0) cho humidity)
+  - Set `threshold` (chỉ cho sensor analog, không áp dụng cho sensor binary)
 - `device_id`: Thiết bị tự tạo ID duy nhất (không trùng với thiết bị khác)
 - `sensor_id`: ID duy nhất cho mỗi sensor trong device
 - `actuator_id`: ID duy nhất cho mỗi actuator trong device
 
 **Các Sensor Types được hỗ trợ:**
 
-| Type | Unit | Name | Min Threshold | Max Threshold |
-|------|------|------|----------------|---------------|
-| `temperature` | `°C` | `Nhiệt độ` | 10.0 | 40.0 |
-| `humidity` | `%` | `Độ ẩm` | 30.0 | 80.0 |
-| `gas` | `ppm` | `Khí gas` | None | 100.0 |
-| `light` | `lux` | `Ánh sáng` | None | 1000.0 |
-| `motion` | `` | `Cảm biến chuyển động` | None | None |
+| Type | Unit | Name | Min Threshold | Max Threshold | Loại |
+|------|------|------|----------------|---------------|------|
+| `temperature` | `°C` | `Nhiệt độ` | 10.0 | 40.0 | Analog |
+| `humidity` | `%` | `Độ ẩm` | 30.0 | 80.0 | Analog |
+| `gas` | `ppm` | `Khí gas` | None | 100.0 | Analog |
+| `motion` | - | `Cảm biến chuyển động` | None | None | Binary (0/1) |
+| `obstacle` | - | `Cảm biến vật cản` | None | None | Binary (0/1) |
+
+**Lưu ý về Sensor Binary:**
+- Sensor binary (`motion`, `obstacle`) chỉ trả về giá trị 0 hoặc 1
+- Không có threshold (ngưỡng) cho sensor binary
+- Frontend sẽ không hiển thị tùy chọn cài đặt threshold cho sensor binary
+- Giá trị gửi lên phải là số nguyên: 0 (không phát hiện) hoặc 1 (phát hiện)
 
 **Response từ Server (`device/{device_id}/register/response`):**
 
@@ -148,6 +167,16 @@ Tài liệu này mô tả chi tiết cách thiết bị IoT (ESP32, Arduino, v.v
     {
       "sensor_id": "sensor_03",
       "value": 187
+    },
+    {
+      "sensor_id": "sensor_04",
+      "type": "motion",
+      "value": 1
+    },
+    {
+      "sensor_id": "sensor_05",
+      "type": "obstacle",
+      "value": 0
     }
   ],
   "actuators": [
@@ -168,13 +197,40 @@ Tài liệu này mô tả chi tiết cách thiết bị IoT (ESP32, Arduino, v.v
 2. Lưu dữ liệu sensor vào `sensor_data` collection
 3. Cập nhật `state` của actuators
 4. Tự động tạo sensor/actuator nếu chưa tồn tại
-5. Kiểm tra ngưỡng và tạo notification nếu vượt quá
+5. Kiểm tra ngưỡng và tạo notification nếu vượt quá (chỉ cho sensor analog)
 
 **Lưu ý:**
 - Gửi định kỳ (khuyến nghị: mỗi 5-10 giây)
 - Chỉ gửi sensors đang enabled
 - `value` phải là số (float hoặc int)
+  - **Sensor analog** (temperature, humidity, gas): giá trị số thực (ví dụ: 25.5, 65.2, 187)
+  - **Sensor binary** (`motion`, `obstacle`): chỉ 0 hoặc 1 (số nguyên)
+    - `0`: Không phát hiện (ví dụ: không có chuyển động, không có vật cản)
+    - `1`: Phát hiện (ví dụ: có chuyển động, có vật cản)
+- Sensor binary có thể gửi kèm trường `type` trong payload để server xác định loại sensor
 - `state` của actuator là boolean (true/false)
+- Sensor binary không có threshold, server sẽ không kiểm tra ngưỡng
+- Frontend sẽ hiển thị biểu đồ cho sensor binary với giá trị 0/1
+
+**Ví dụ gửi dữ liệu cho sensor binary:**
+
+```json
+{
+  "sensor_id": "sensor_04",
+  "type": "motion",
+  "value": 1
+}
+```
+
+hoặc
+
+```json
+{
+  "sensor_id": "sensor_05",
+  "type": "obstacle",
+  "value": 0
+}
+```
 
 ---
 
@@ -466,6 +522,9 @@ ON_DISCONNECT():
 **Lưu ý quan trọng:**
 - Server tự động tạo sensors với unit, name và threshold dựa trên `type`
 - Device chỉ cần gửi `type` khi đăng ký sensors
+- Sensor binary (`motion`, `obstacle`) không có threshold và unit
+- Khi gửi dữ liệu, sensor binary có thể gửi kèm trường `type` để đảm bảo server xác định đúng loại
 - LWT tự động phát hiện disconnect, không cần gửi status message thủ công
 - Gửi dữ liệu định kỳ để cập nhật `last_seen` và `status = "online"`
+- Frontend sẽ hiển thị biểu đồ cho tất cả sensors, bao gồm cả sensor binary (với giá trị 0/1)
 

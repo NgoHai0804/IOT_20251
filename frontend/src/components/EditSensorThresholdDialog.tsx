@@ -12,6 +12,7 @@ import { Input } from './ui/input';
 import { Label } from './ui/label';
 import { toast } from 'sonner';
 import type { Sensor } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 import { newSensorAPI } from '@/services/api';
 
 interface EditSensorThresholdDialogProps {
@@ -84,6 +85,9 @@ export function EditSensorThresholdDialog({
 
   if (!sensor) return null;
 
+  // Kiểm tra sensor có hỗ trợ threshold không
+  const supportsThreshold = sensorSupportsThreshold(sensor.type);
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-slate-800 border-slate-700 text-white">
@@ -93,7 +97,17 @@ export function EditSensorThresholdDialog({
             {sensor.name} ({sensor.type})
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit}>
+        {!supportsThreshold ? (
+          <div className="py-4">
+            <p className="text-slate-300 text-center">
+              Cảm biến loại <span className="font-semibold text-cyan-400">{sensor.type}</span> không hỗ trợ cài đặt ngưỡng.
+            </p>
+            <p className="text-slate-400 text-sm text-center mt-2">
+              Cảm biến này chỉ trả về giá trị binary (0/1) nên không cần thiết lập ngưỡng.
+            </p>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
           <div className="space-y-4 py-4">
             <div className="space-y-2">
               <Label htmlFor="min_threshold" className="text-cyan-200">
@@ -156,6 +170,19 @@ export function EditSensorThresholdDialog({
             </Button>
           </DialogFooter>
         </form>
+        )}
+        {!supportsThreshold && (
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              className="bg-slate-700 border-slate-600 text-white hover:bg-slate-600"
+            >
+              Đóng
+            </Button>
+          </DialogFooter>
+        )}
       </DialogContent>
     </Dialog>
   );

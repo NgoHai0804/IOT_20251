@@ -73,6 +73,8 @@ DEVICE_PASSWORD = "123"
 SENSOR_TEMP_ID = "test1"
 SENSOR_HUMIDITY_ID = "test2"
 SENSOR_GAS_ID = "test3"
+SENSOR_PIR_ID = "test6"
+SENSOR_IR_ID = "test7"
 
 # Actuator IDs
 ACTUATOR_RELAY1_ID = "test4"
@@ -88,6 +90,8 @@ sensor_states = {
     SENSOR_TEMP_ID: True,
     SENSOR_HUMIDITY_ID: True,
     SENSOR_GAS_ID: True,
+    SENSOR_PIR_ID: True,
+    SENSOR_IR_ID: True,
 }
 actuator_states = {
     ACTUATOR_RELAY1_ID: True,
@@ -99,6 +103,8 @@ sensor_values = {
     SENSOR_TEMP_ID: 25.0,  # Nhiệt độ (°C)
     SENSOR_HUMIDITY_ID: 60.0,  # Độ ẩm (%)
     SENSOR_GAS_ID: 200,  # Gas (ppm)
+    SENSOR_PIR_ID: False,  # PIR motion sensor (0/1)
+    SENSOR_IR_ID: False,  # IR obstacle sensor (0/1)
 }
 
 # ========== MQTT Callbacks ==========
@@ -230,6 +236,26 @@ def send_sensor_data(client):
             "value": sensor_values[SENSOR_GAS_ID]
         })
     
+    # ===== PIR =====
+    if sensor_states.get(SENSOR_PIR_ID, False):
+        # Giả lập PIR: thỉnh thoảng phát hiện chuyển động (10% cơ hội)
+        sensor_values[SENSOR_PIR_ID] = random.random() < 0.1
+        payload["sensors"].append({
+            "sensor_id": SENSOR_PIR_ID,
+            "type": "motion",
+            "value": 1 if sensor_values[SENSOR_PIR_ID] else 0
+        })
+    
+    # ===== IR (VẬT CẢN) =====
+    if sensor_states.get(SENSOR_IR_ID, False):
+        # Giả lập IR: thỉnh thoảng phát hiện vật cản (15% cơ hội)
+        sensor_values[SENSOR_IR_ID] = random.random() < 0.15
+        payload["sensors"].append({
+            "sensor_id": SENSOR_IR_ID,
+            "type": "obstacle",   # hoặc "infrared" / "binary"
+            "value": 1 if sensor_values[SENSOR_IR_ID] else 0
+        })
+    
     # Thêm actuators (gửi trạng thái hiện tại)
     payload["actuators"].append({
         "actuator_id": ACTUATOR_RELAY1_ID,
@@ -305,7 +331,9 @@ def register_device(client=None):
             # Chỉ cần gửi type và pin, server sẽ tự động set unit, name và threshold
             {"sensor_id": SENSOR_TEMP_ID, "type": "temperature", "pin": 4},
             {"sensor_id": SENSOR_HUMIDITY_ID, "type": "humidity", "pin": 5},
-            {"sensor_id": SENSOR_GAS_ID, "type": "gas", "pin": 34}
+            {"sensor_id": SENSOR_GAS_ID, "type": "gas", "pin": 34},
+            {"sensor_id": SENSOR_PIR_ID, "type": "motion", "pin": 27},
+            {"sensor_id": SENSOR_IR_ID, "type": "obstacle", "pin": 33}  # hoặc "infrared" / "binary"
         ],
         "actuators": [
             {"actuator_id": ACTUATOR_RELAY1_ID, "type": "relay", "name": "Đèn trần", "pin": 23},

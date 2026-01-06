@@ -33,7 +33,7 @@ export interface Device {
 export interface Sensor {
   _id: string;
   device_id: string;
-  type: 'temperature' | 'humidity' | 'gas' | 'light' | 'motion';
+  type: 'temperature' | 'humidity' | 'gas' | 'light' | 'motion' | 'obstacle';
   name: string;
   unit: string;
   pin: number;
@@ -45,6 +45,12 @@ export interface Sensor {
   max_threshold?: number; // Ngưỡng trên
   created_at?: string;
   updated_at?: string;
+}
+
+// Helper function để kiểm tra sensor có hỗ trợ threshold không
+export function sensorSupportsThreshold(sensorType: Sensor['type']): boolean {
+  // Các sensor binary (motion, obstacle) không hỗ trợ threshold
+  return sensorType !== 'motion' && sensorType !== 'obstacle';
 }
 
 export interface Actuator {

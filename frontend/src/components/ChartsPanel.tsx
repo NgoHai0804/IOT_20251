@@ -6,10 +6,12 @@ import type { ChartsPanelProps, ChartDataPoint } from '@/types';
 
 interface ChartsPanelExtendedProps extends ChartsPanelProps {
   sensorName?: string;
-  chartType?: 'temperature' | 'humidity' | 'energy';
+  chartType?: 'temperature' | 'humidity' | 'energy' | 'motion' | 'obstacle';
   selectedDays?: 1 | 3 | 7;
   onSelectedDaysChange?: (days: 1 | 3 | 7) => void;
   showDaySelector?: boolean;
+  motionData?: ChartDataPoint[];
+  obstacleData?: ChartDataPoint[];
 }
 
 export const ChartsPanel = memo(function ChartsPanel({ 
@@ -20,7 +22,9 @@ export const ChartsPanel = memo(function ChartsPanel({
   chartType,
   selectedDays,
   onSelectedDaysChange,
-  showDaySelector = false
+  showDaySelector = false,
+  motionData,
+  obstacleData,
 }: ChartsPanelExtendedProps) {
   // Determine which data to show based on chartType or available data
   const chartData = useMemo(() => {
@@ -33,6 +37,12 @@ export const ChartsPanel = memo(function ChartsPanel({
     if (chartType === 'energy' && energyData && energyData.length > 0) {
       return { data: energyData, type: 'energy' as const };
     }
+    if (chartType === 'motion' && motionData && motionData.length > 0) {
+      return { data: motionData, type: 'motion' as const };
+    }
+    if (chartType === 'obstacle' && obstacleData && obstacleData.length > 0) {
+      return { data: obstacleData, type: 'obstacle' as const };
+    }
     
     // Auto-detect based on available data
     if (temperatureData && temperatureData.length > 0) {
@@ -44,9 +54,15 @@ export const ChartsPanel = memo(function ChartsPanel({
     if (energyData && energyData.length > 0) {
       return { data: energyData, type: 'energy' as const };
     }
+    if (motionData && motionData.length > 0) {
+      return { data: motionData, type: 'motion' as const };
+    }
+    if (obstacleData && obstacleData.length > 0) {
+      return { data: obstacleData, type: 'obstacle' as const };
+    }
     
     return { data: [], type: 'temperature' as const };
-  }, [temperatureData, humidityData, energyData, chartType]);
+  }, [temperatureData, humidityData, energyData, motionData, obstacleData, chartType]);
 
   const hasData = chartData.data && chartData.data.length > 0;
   const displayName = sensorName || 'Xu hướng dữ liệu cảm biến';
@@ -56,7 +72,7 @@ export const ChartsPanel = memo(function ChartsPanel({
       <CardHeader className="flex-shrink-0 pb-4">
         <div className="flex items-center justify-between">
           <CardTitle className="text-white text-xl font-bold">{displayName}</CardTitle>
-          {showDaySelector && selectedDays !== undefined && onSelectedDaysChange && hasData && (
+          {showDaySelector && selectedDays !== undefined && onSelectedDaysChange && (
             <div className="flex items-center gap-3">
               <span className="text-cyan-200/70 text-sm font-medium">Khoảng thời gian:</span>
               {([1, 3, 7] as const).map((days) => (
@@ -132,6 +148,32 @@ export const ChartsPanel = memo(function ChartsPanel({
                   activeDot={{ r: 7 }}
                 />
               </LineChart>
+            ) : chartData.type === 'motion' || chartData.type === 'obstacle' ? (
+              <BarChart data={chartData.data}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#475569" opacity={0.5} />
+                <XAxis dataKey="time" stroke="#94a3b8" tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                <YAxis 
+                  stroke="#94a3b8" 
+                  tick={{ fill: '#94a3b8', fontSize: 12 }}
+                  domain={[0, 1]}
+                  ticks={[0, 1]}
+                />
+                <Tooltip
+                  contentStyle={{
+                    backgroundColor: '#1e293b',
+                    border: '1px solid #475569',
+                    borderRadius: '10px',
+                    color: '#fff',
+                    boxShadow: '0 4px 20px rgba(0, 0, 0, 0.3)',
+                  }}
+                  formatter={(value: number) => [Math.round(value), 'Giá trị']}
+                />
+                <Bar 
+                  dataKey="value" 
+                  fill={chartData.type === 'motion' ? '#a855f7' : '#ef4444'} 
+                  radius={[10, 10, 0, 0]} 
+                />
+              </BarChart>
             ) : (
               <BarChart data={chartData.data}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#475569" opacity={0.5} />

@@ -487,7 +487,7 @@ void registerDevice() {
 
   JsonObject sensorIr = sensors.createNestedObject();
   sensorIr["sensor_id"] = SENSOR_IR_ID;
-  sensorIr["type"] = "motion";
+  sensorIr["type"] = "obstacle";   // hoặc "infrared" / "binary"
   sensorIr["pin"] = IR_PIN;
 
   // Actuators
@@ -543,15 +543,19 @@ void sendSensorData() {
     hum["value"] = humidity;
   }
 
+  // ===== PIR =====
   if (sensorStates[2]) {
     JsonObject pir = sensors.createNestedObject();
     pir["sensor_id"] = SENSOR_PIR_ID;
+    pir["type"] = "motion";
     pir["value"] = pirState ? 1 : 0;
   }
 
+  // ===== IR (VẬT CẢN) =====
   if (sensorStates[3]) {
     JsonObject ir = sensors.createNestedObject();
     ir["sensor_id"] = SENSOR_IR_ID;
+    ir["type"] = "obstacle";   // hoặc "infrared" / "binary"
     ir["value"] = irState ? 1 : 0;
   }
 

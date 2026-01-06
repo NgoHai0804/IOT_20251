@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Home, Activity, Wifi, WifiOff, AlertCircle, TrendingUp, Zap, Droplets, Thermometer } from 'lucide-react';
 import { roomDevicesCache } from '@/utils/roomDevicesCache';
 import type { DashboardProps, Sensor, Room, Device } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 
 interface RoomData {
   room: Room;
@@ -74,6 +75,8 @@ export function Dashboard({
     
     const alertSensors = sensors.filter(s => {
       if (!s.enabled || s.value === undefined) return false;
+      // Chỉ kiểm tra threshold cho sensor hỗ trợ threshold
+      if (!sensorSupportsThreshold(s.type)) return false;
       return (s.min_threshold !== undefined && s.value < s.min_threshold) ||
              (s.max_threshold !== undefined && s.value > s.max_threshold);
     }).length;

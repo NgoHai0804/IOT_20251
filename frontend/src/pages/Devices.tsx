@@ -13,6 +13,7 @@ import { Lightbulb, Fan, AirVent, Plug, Pencil, Trash2, Settings } from 'lucide-
 import { newDeviceAPI, sensorDataAPI } from '@/services/api';
 import { toast } from 'sonner';
 import type { DevicesProps, Device, Sensor, Actuator, ChartDataPoint } from '@/types';
+import { sensorSupportsThreshold } from '@/types';
 import { toVietnamISOString } from '@/utils/timezone';
 
 const iconMap: Record<string, typeof Lightbulb> = {
@@ -84,10 +85,14 @@ export function Devices({
     temperature: ChartDataPoint[];
     humidity: ChartDataPoint[];
     energy: ChartDataPoint[];
+    motion: ChartDataPoint[];
+    obstacle: ChartDataPoint[];
   }>({
     temperature: [],
     humidity: [],
     energy: [],
+    motion: [],
+    obstacle: [],
   });
   const [loadingSensorData, setLoadingSensorData] = useState(false);
   const [selectedDays, setSelectedDays] = useState<1 | 3 | 7>(1);
@@ -206,6 +211,8 @@ export function Devices({
         temperature: [],
         humidity: [],
         energy: [],
+        motion: [],
+        obstacle: [],
       });
       return;
     }
@@ -433,21 +440,37 @@ export function Devices({
         value: typeof item.value === 'number' ? item.value : parseFloat(item.value) || 0,
       }));
 
-      const averagedData = calculateAveragedData(rawDataForAveraging, 20);
+      // Với sensor binary (motion, obstacle), không tính trung bình, giữ nguyên giá trị 0/1
+      const isBinarySensor = sensor.type === 'motion' || sensor.type === 'obstacle';
+      const averagedData = isBinarySensor 
+        ? rawDataForAveraging.map((item: any) => ({
+            time: new Date(item.timestamp).toLocaleTimeString('vi-VN', { 
+              hour: '2-digit', 
+              minute: '2-digit',
+            }),
+            value: Math.round(item.value), // Đảm bảo là 0 hoặc 1
+          }))
+        : calculateAveragedData(rawDataForAveraging, 20);
 
       const newChartData = {
         temperature: sensor.type === 'temperature' ? averagedData : [],
         humidity: sensor.type === 'humidity' ? averagedData : [],
         energy: (sensor.type === 'gas' || sensor.type === 'light') ? averagedData : [],
+        motion: sensor.type === 'motion' ? averagedData : [],
+        obstacle: sensor.type === 'obstacle' ? averagedData : [],
       };
 
       setSensorChartData(newChartData);
       
-      let chartType: 'temperature' | 'humidity' | 'energy' = 'temperature';
+      let chartType: 'temperature' | 'humidity' | 'energy' | 'motion' | 'obstacle' | undefined = 'temperature';
       if (sensor.type === 'humidity') {
         chartType = 'humidity';
       } else if (sensor.type === 'gas' || sensor.type === 'light') {
         chartType = 'energy';
+      } else if (sensor.type === 'motion') {
+        chartType = 'motion';
+      } else if (sensor.type === 'obstacle') {
+        chartType = 'obstacle';
       }
       
       setChartDefaultTab(chartType);
@@ -489,6 +512,8 @@ export function Devices({
         temperature: [],
         humidity: [],
         energy: [],
+        motion: [],
+        obstacle: [],
       });
     }
   }, [selectedDeviceId]);
@@ -861,17 +886,21 @@ export function Devices({
                                       <div className="mb-1">
                                         <div className="flex items-baseline gap-1.5">
                                           <span className={`font-bold text-lg ${
-                                            (sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
-                                            (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)
+                                            sensorSupportsThreshold(sensor.type) &&
+                                            ((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
+                                            (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold))
                                               ? 'text-red-400' 
                                               : 'text-white'
                                           }`}>
-                                            {sensor.value.toFixed(1)}
+                                            {(sensor.type === 'motion' || sensor.type === 'obstacle') 
+                                              ? Math.round(sensor.value) 
+                                              : sensor.value.toFixed(1)}
                                           </span>
                                           <span className="text-cyan-200/70 text-xs">
                                             {sensor.unit || ''}
                                           </span>
-                                          {((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
+                                          {sensorSupportsThreshold(sensor.type) &&
+                                            ((sensor.min_threshold !== undefined && sensor.value < sensor.min_threshold) ||
                                             (sensor.max_threshold !== undefined && sensor.value > sensor.max_threshold)) && (
                                             <span className="text-red-400 text-sm ml-1" title="Vượt quá ngưỡng nguy hiểm">
                                               !
@@ -883,7 +912,7 @@ export function Devices({
                                       <div className="text-slate-400 text-xs mb-1">Chưa có dữ liệu</div>
                                     )}
                                     
-                                    {(sensor.min_threshold !== undefined || sensor.max_threshold !== undefined) && (
+                                    {sensorSupportsThreshold(sensor.type) && (sensor.min_threshold !== undefined || sensor.max_threshold !== undefined) && (
                                       <div className="text-[10px] text-cyan-200/60 leading-tight">
                                         Ngưỡng: {
                                           sensor.min_threshold !== undefined && sensor.max_threshold !== undefined
@@ -925,18 +954,20 @@ export function Devices({
                                       >
                                         <Pencil className="h-3 w-3" />
                                       </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="sm"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setEditingSensorThreshold(sensor);
-                                        }}
-                                        className="h-7 px-2 text-[10px] text-cyan-200/90 hover:text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
-                                        title="Cài đặt ngưỡng cảm biến"
-                                      >
-                                        <Settings className="h-3.5 w-3.5" />
-                                      </Button>
+                                      {sensorSupportsThreshold(sensor.type) && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            setEditingSensorThreshold(sensor);
+                                          }}
+                                          className="h-7 px-2 text-[10px] text-cyan-200/90 hover:text-cyan-200 hover:bg-cyan-500/30 border border-cyan-500/40 hover:border-cyan-400/60 transition-all duration-200"
+                                          title="Cài đặt ngưỡng cảm biến"
+                                        >
+                                          <Settings className="h-3.5 w-3.5" />
+                                        </Button>
+                                      )}
                                     </div>
                                   </div>
                                 </div>
@@ -1018,11 +1049,13 @@ export function Devices({
                       temperatureData={sensorChartData.temperature}
                       energyData={sensorChartData.energy}
                       humidityData={sensorChartData.humidity}
+                      motionData={sensorChartData.motion}
+                      obstacleData={sensorChartData.obstacle}
                       sensorName={selectedSensorName || undefined}
-                      chartType={chartDefaultTab as 'temperature' | 'humidity' | 'energy' | undefined}
+                      chartType={chartDefaultTab as 'temperature' | 'humidity' | 'energy' | 'motion' | 'obstacle' | undefined}
                       selectedDays={selectedDays}
                       onSelectedDaysChange={setSelectedDays}
-                      showDaySelector={!!selectedSensorId}
+                      showDaySelector={true}
                     />
                   </div>
                 )}
