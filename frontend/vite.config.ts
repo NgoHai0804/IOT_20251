@@ -16,4 +16,21 @@ export default defineConfig({
   },
   // Đảm bảo các biến môi trường được expose cho client
   envPrefix: 'VITE_',
+  build: {
+    // Tối ưu build cho production
+    minify: 'esbuild',
+    sourcemap: false,
+    // Chunk splitting để giảm memory usage
+    chunkSizeWarningLimit: 1000,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          'react-vendor': ['react', 'react-dom', 'react-router-dom'],
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
+          'chart-vendor': ['recharts'],
+          'three-vendor': ['three', '@react-three/fiber', '@react-three/drei'],
+        },
+      },
+    },
+  },
 })

@@ -9,12 +9,18 @@ FROM node:20-slim AS frontend-builder
 
 WORKDIR /app/frontend
 
+# Tăng memory limit cho Node.js build process (tránh OOM)
+# Render free tier có giới hạn memory, nên dùng 1536MB để an toàn hơn
+ENV NODE_OPTIONS="--max-old-space-size=1536"
+
 # Copy package files
 COPY frontend/package.json frontend/package-lock.json ./
 
 # Install dependencies với cache mount (nhanh hơn 5-10 lần)
+# Thêm progress và error handling tốt hơn
 RUN --mount=type=cache,target=/root/.npm \
-    npm ci --include=dev
+    npm ci --include=dev --prefer-offline --no-audit --progress=false || \
+    (echo "npm ci failed, trying npm install..." && npm install --include=dev --no-audit --progress=false)
 
 # Copy source code
 COPY frontend/ ./
@@ -24,8 +30,15 @@ ARG VITE_API_BASE_URL
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://iot-20251.onrender.com}
 ENV NODE_ENV=production
 
-# Build frontend
-RUN npm run build:docker
+# Build frontend với error handling tốt hơn
+# Thêm verbose output để debug nếu cần
+RUN echo "Starting frontend build..." && \
+    npm run build:docker && \
+    echo "Frontend build completed successfully!" && \
+    ls -la dist/ || \
+    (echo "Build failed! Checking for errors..." && \
+     cat package.json && \
+     exit 1)
 
 # ============================================
 # Stage 2: Python Backend
