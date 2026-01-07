@@ -14,10 +14,6 @@ build/
 
 # Environment variables - không commit file .env
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
 .env.*
 
 # Logs
