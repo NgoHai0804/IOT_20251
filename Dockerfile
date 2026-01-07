@@ -1,5 +1,3 @@
-# syntax=docker/dockerfile:1.7
-
 # Multi-stage build cho IoT Backend + Frontend
 
 # ============================================
@@ -10,17 +8,17 @@ FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 
 # Tăng memory limit cho Node.js build process (tránh OOM)
-# Render free tier có giới hạn memory, nên dùng 1536MB để an toàn hơn
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+# Render free tier có giới hạn memory nghiêm ngặt, dùng 1024MB để an toàn
+ENV NODE_OPTIONS="--max-old-space-size=1024"
 
 # Copy package files
 COPY frontend/package.json frontend/package-lock.json ./
 
-# Install dependencies với cache mount (nhanh hơn 5-10 lần)
-# Thêm progress và error handling tốt hơn
-RUN --mount=type=cache,target=/root/.npm \
-    npm ci --include=dev --prefer-offline --no-audit --progress=false || \
-    (echo "npm ci failed, trying npm install..." && npm install --include=dev --no-audit --progress=false)
+# Install dependencies (không dùng cache mount để tương thích tốt hơn với Render)
+# Tách riêng để dễ debug và giảm memory pressure
+RUN npm ci --include=dev --no-audit --progress=false --loglevel=error || \
+    (echo "npm ci failed, trying npm install..." && \
+     npm install --include=dev --no-audit --progress=false --loglevel=error)
 
 # Copy source code
 COPY frontend/ ./
@@ -31,13 +29,13 @@ ENV VITE_API_BASE_URL=${VITE_API_BASE_URL:-https://iot-20251.onrender.com}
 ENV NODE_ENV=production
 
 # Build frontend với error handling tốt hơn
-# Thêm verbose output để debug nếu cần
-RUN echo "Starting frontend build..." && \
+RUN echo "Starting frontend build with VITE_API_BASE_URL=${VITE_API_BASE_URL}..." && \
     npm run build:docker && \
-    echo "Frontend build completed successfully!" && \
-    ls -la dist/ || \
-    (echo "Build failed! Checking for errors..." && \
-     cat package.json && \
+    echo "Frontend build completed!" && \
+    test -d dist && test -f dist/index.html && \
+    echo "Build output verified successfully" || \
+    (echo "ERROR: Build failed or dist directory is missing!" && \
+     ls -la . && \
      exit 1)
 
 # ============================================
@@ -52,11 +50,10 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy requirements và install Python dependencies với cache mount
+# Copy requirements và install Python dependencies
 COPY backend/requirements.txt ./
 
-RUN --mount=type=cache,target=/root/.cache/pip \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy backend source code
 COPY backend/ ./
